@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MURTEDE • Analytics</title>
+  <style>
+    :root{
+      --bg:#0b1220; --card:#0f1a30; --muted:#8aa0c2; --text:#e8f0ff;
+      --good:#35d07f; --warn:#ffcc66; --bad:#ff6b6b; --accent:#7aa7ff;
+      --line: rgba(255,255,255,.08);
+    }
+    *{box-sizing:border-box; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;}
+    body{margin:0; background:linear-gradient(180deg,#071022, #0b1220 35%, #071022); color:var(--text);}
+    a{color:var(--accent)}
+
+    .wrap{max-width:1200px; margin:0 auto; padding:18px;}
+    .topbar{display:flex; align-items:center; justify-content:space-between; gap:14px;}
+    .brand{display:flex; flex-direction:column;}
+    .brand b{font-size:18px; letter-spacing:.5px;}
+    .brand span{color:var(--muted); font-size:12px;}
+
+    .card{background:rgba(15,26,48,.92); border:1px solid var(--line); border-radius:16px; box-shadow: 0 12px 35px rgba(0,0,0,.35);}
+    .pad{padding:16px;}
+
+    .grid{display:grid; gap:14px;}
+    .grid-2{grid-template-columns: 1fr 1fr;}
+    .grid-3{grid-template-columns: repeat(3,1fr);} 
+    @media (max-width: 980px){.grid-2,.grid-3{grid-template-columns:1fr;}}
+
+    .btn{appearance:none; border:0; cursor:pointer; padding:10px 12px; border-radius:12px; color:var(--text);
+      background:rgba(122,167,255,.16); border:1px solid rgba(122,167,255,.35);
+      font-weight:650; letter-spacing:.2px;}
+    .btn:hover{filter:brightness(1.08)}
+    .btn.secondary{background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.14);}
+
+    label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px;}
+    input, select{width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06); color:var(--text); outline:none;}
+    input:focus, select:focus{border-color:rgba(122,167,255,.55); box-shadow: 0 0 0 3px rgba(122,167,255,.16)}
+
+    .tabs{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
+    .tab{padding:8px 12px; border-radius:999px; border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06); color:var(--text); cursor:pointer; font-weight:650; font-size:12px;}
+    .tab.active{background:rgba(122,167,255,.20); border-color:rgba(122,167,255,.55)}
+
+    .kpis{display:grid; grid-template-columns: repeat(4, 1fr); gap:12px; margin-top:14px;}
+    @media(max-width:980px){.kpis{grid-template-columns:1fr 1fr;}}
+    @media(max-width:520px){.kpis{grid-template-columns:1fr;}}
+    .kpi{padding:12px; border-radius:14px; border:1px solid var(--line); background:rgba(255,255,255,.04)}
+    .kpi .t{font-size:12px; color:var(--muted)}
+    .kpi .v{font-size:22px; font-weight:800; margin-top:4px}
+
+    table{width:100%; border-collapse:separate; border-spacing:0; overflow:hidden;}
+    th,td{padding:10px 10px; border-bottom:1px solid var(--line); text-align:left; font-size:13px;}
+    th{position:sticky; top:0; background:rgba(15,26,48,.98); color:rgba(232,240,255,.92); z-index:2;}
+    tr:hover td{background:rgba(255,255,255,.03)}
+
+    .scroll{max-height:520px; overflow:auto; border:1px solid var(--line); border-radius:14px;}
+
+    .pill{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-size:12px;
+      border:1px solid rgba(255,255,255,.14); background:rgba(255,255,255,.06);}
+    .pill.good{border-color:rgba(53,208,127,.45); background:rgba(53,208,127,.12)}
+    .pill.warn{border-color:rgba(255,204,102,.45); background:rgba(255,204,102,.12)}
+
+    .login{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px;}
+    .login-card{width:min(440px, 100%);} 
+    .login h1{margin:0 0 8px 0; font-size:18px;}
+    .login p{margin:0 0 16px 0; color:var(--muted); font-size:13px;}
+
+    .hide{display:none !important;}
+    .muted{color:var(--muted)}
+  </style>
+</head>
+<body>
+
+<div id="login" class="login">
+  <div class="card pad login-card">
+    <h1>MURTEDE • Analytics</h1>
+    <p>Analytics dashboard: operator performance, top-selling products, and most-returned products.</p>
+
+    <div class="grid" style="gap:10px;">
+      <div>
+        <label>Email</label>
+        <input id="email" type="email" placeholder="@admin.com / @wh.com" />
+      </div>
+      <div>
+        <label>Password</label>
+        <input id="pass" type="password" placeholder="••••••••" />
+      </div>
+      <button class="btn" onclick="handleLogin()">SIGN IN</button>
+      <div id="login-msg" class="muted" style="font-size:12px;"></div>
+    </div>
+  </div>
+</div>
+
+<div id="app" class="wrap hide">
+  <div class="topbar">
+    <div class="brand">
+      <b>MURTEDE • Analytics</b>
+      <span id="userline">User: -</span>
+    </div>
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:flex-end;">
+      <span id="dbline" class="pill">DB: wh-murtede</span>
+      <button class="btn secondary" onclick="auth.signOut()">Logout</button>
+    </div>
+  </div>
+
+  <div class="card pad" style="margin-top:14px;">
+    <div class="grid grid-3">
+      <div>
+        <label>Start date</label>
+        <input type="date" id="start" />
+      </div>
+      <div>
+        <label>End date</label>
+        <input type="date" id="end" />
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn" onclick="runAnalytics()">RUN ANALYSIS</button>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="perf" onclick="showTab('perf')">👥 Performance</div>
+      <div class="tab" data-tab="sold" onclick="showTab('sold')">🔥 Top sold</div>
+      <div class="tab" data-tab="ret" onclick="showTab('ret')">↩️ Top returns</div>
+      <div class="tab" data-tab="ratio" onclick="showTab('ratio')">📉 Return rate</div>
+      <div class="tab" data-tab="carriers" onclick="showTab('carriers')">🚚 Carriers</div>
+      <div class="tab" data-tab="opprods" onclick="showTab('opprods')">📦 Products by operator</div>
+      <div class="tab" data-tab="daycar" onclick="showTab('daycar')">🗓️ Products by day & carrier</div>
+      <div class="tab" data-tab="export" onclick="showTab('export')">📁 Export</div>
+      <span id="status" class="muted" style="margin-left:auto; font-size:12px;"></span>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="grid grid-2" style="margin-top:14px;">
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Volume over time</b>
+        <div style="height:260px; margin-top:10px;"><canvas id="chart-trend"></canvas></div>
+      </div>
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Top operators</b>
+        <div class="grid" style="grid-template-columns: 1fr 1fr; gap:10px; margin-top:10px;">
+          <div style="height:260px;">
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Packed IDs</div>
+            <div style="height:230px;"><canvas id="chart-ops-ids"></canvas></div>
+          </div>
+          <div style="height:260px;">
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Packed items</div>
+            <div style="height:230px;"><canvas id="chart-ops-items"></canvas></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tab-perf" class="card pad" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">👥 Performance by operator</h3>
+    <div class="scroll">
+      <table id="tbl-perf">
+        <thead>
+          <tr>
+            <th>Operator</th>
+            <th>Packed IDs</th>
+            <th>Packed Items</th>
+            <th>Returns IDs</th>
+            <th>Returned Items</th>
+            <th>Pre-pack Scans</th>
+            <th>Avg. pack time</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-sold" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">🔥 Top-selling products (PACKING)</h3>
+    <div style="height:320px; margin-top:8px;"><canvas id="chart-sold"></canvas></div>
+    <div class="scroll">
+      <table id="tbl-sold">
+        <thead><tr><th>#</th><th>Produto</th><th>Qtd</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-ret" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">↩️ Most-returned products (RETURN/RETURNS)</h3>
+    <div style="height:320px; margin-top:8px;"><canvas id="chart-ret"></canvas></div>
+    <div class="scroll">
+      <table id="tbl-ret">
+        <thead><tr><th>#</th><th>Produto</th><th>Qtd</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-ratio" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">📉 Return rate by product</h3>
+    <div style="height:320px; margin-top:8px;"><canvas id="chart-ratio"></canvas></div>
+    <p class="muted" style="margin-top:0;">Rate = returns / sold (within the range). Only products with at least 10 sales are shown.</p>
+    <div class="scroll">
+      <table id="tbl-ratio">
+        <thead><tr><th>#</th><th>Produto</th><th>Vendidos</th><th>Returns</th><th>Taxa</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+
+
+  <div id="tab-carriers" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">🚚 Carrier analysis (Printed IDs)</h3>
+    <div style="height:320px; margin-top:8px;"><canvas id="chart-carrier-printed"></canvas></div>
+    <p class="muted" style="margin-top:0;">Printed IDs are calculated from <code>active_batches</code> as the number of required IDs (expected IDs minus cancelled IDs) within the selected date range, grouped by carrier. Percentages are shown within each country group (PT vs ES) + the carrier share of the overall total.</p>
+    <div class="scroll">
+      <table id="tbl-carriers">
+        <thead><tr><th>Country</th><th>Carrier</th><th>Printed IDs</th><th>Cancelled IDs</th><th>Printed % (country)</th><th>Country % (total)</th><th>Batches</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+
+
+  <div id="tab-opprods" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">📦 Products packed by operator (PACKING)</h3>
+
+    <div class="grid grid-3" style="margin-bottom:10px;">
+      <div>
+        <label>Operator</label>
+        <select id="sel-opprods" onchange="renderOperatorProducts()"></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn secondary" onclick="exportCSV('opproducts')">Export CSV (operator×product)</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <span class="muted" style="font-size:12px;">Counts items inside PACKING (excluding WARRANTY products).</span>
+      </div>
+    </div>
+
+    <div class="scroll">
+      <table id="tbl-opprods">
+        <thead><tr><th>#</th><th>Product</th><th>Qty</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  
+  <div id="tab-daycar" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">🗓️ Products created in batch (IDs) by day & carrier</h3>
+
+    <div class="grid grid-3" style="margin-bottom:10px;">
+      <div>
+        <label>Day</label>
+        <select id="sel-daycar-day" onchange="onDayCarrierDayChange()"></select>
+      </div>
+      <div>
+        <label>Carrier</label>
+        <select id="sel-daycar-carrier" onchange="renderDayCarrierProducts()"></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn secondary" onclick="exportCSV('daycarrier')">Export CSV (day×carrier×product)</button>
+      </div>
+    </div>
+
+    <div class="muted" style="font-size:12px; margin-bottom:10px;">
+      Built from <code>active_batches</code> (expected IDs minus cancelled IDs) joined with <code>registos</code> PACKING by <code>id</code>.
+      Products exclude WARRANTY.
+    </div>
+
+    <div class="scroll">
+      <table id="tbl-daycar">
+        <thead><tr><th>#</th><th>Product</th><th>Qty</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+<div id="tab-export" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">📁 Export</h3>
+    <div class="grid grid-2">
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Export (CSV)</b>
+        <p class="muted" style="margin:8px 0 12px 0;">Export tables (performance + top lists) to CSV.</p>
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+          <button class="btn secondary" onclick="exportCSV('performance')">Performance</button>
+          <button class="btn secondary" onclick="exportCSV('sold')">Top sold</button>
+          <button class="btn secondary" onclick="exportCSV('returns')">Top returns</button>
+          <button class="btn secondary" onclick="exportCSV('ratio')">Return rate</button>
+          <button class="btn secondary" onclick="exportCSV('carriers')">Carriers (printed)</button>
+          <button class="btn secondary" onclick="exportCSV('opproducts')">Products by operator</button>
+          <button class="btn secondary" onclick="exportCSV('daycarrier')">Products by day & carrier</button>
+        </div>
+      </div>
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Notes</b>
+        <ul class="muted" style="margin:8px 0 0 18px; line-height:1.55;">
+          <li>PACKING and RETURNS come from <code>registos</code> (with <code>dateClean</code>, <code>user</code>, <code>prods</code>, <code>startTime</code>/<code>endTime</code>).</li>
+          <li>Pre-pack comes from <code>pre_packing</code> (each record = 1 product scan).</li>
+          <li>For large ranges, the dashboard runs one query per day (more stable than scanning the entire DB).</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Firebase (compat) -->
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+  // Firebase config copied from the current panel
+  const firebaseConfig = {
+    apiKey: "AIzaSyDExvgmtrSILCATQgE8ICJX-SVntb5lM2Y",
+    authDomain: "wh-murtede.firebaseapp.com",
+    databaseURL: "https://wh-murtede-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId: "wh-murtede",
+    storageBucket: "wh-murtede.firebasestorage.app",
+    messagingSenderId: "415946575714",
+    appId: "1:415946575714:web:b1516b91b9735b9248e63b"
+  };
+
+  let auth = null, db = null, currentUser = null;
+
+  // caches para export
+  let __last = {
+    range: {start:"", end:""},
+    perfRows: [],
+    soldRows: [],
+    retRows: [],
+    ratioRows: [],
+    carrierRows: [],
+    opProductsMap: {},
+    dayCarrierProdMap: {},
+    totals: {}
+  };
+
+  function _nowISO(){ return new Date().toISOString().slice(0,10); }
+  function _fmt(x){ return (x===undefined||x===null) ? "" : String(x); }
+function _u(x){ return _fmt(x).trim().toUpperCase(); }
+
+// Products to ignore in item counts / product rankings
+const EXCLUDED_PRODUCTS = new Set(["WARRANTY ES", "WARRANTY PT"]);
+function _isExcludedProduct(p){
+  const u = _u(p);
+  // Allow variants like 'WARRANTY ES x1'
+  if(u === "WARRANTY ES" || u.startsWith("WARRANTY ES ")) return true;
+  if(u === "WARRANTY PT" || u.startsWith("WARRANTY PT ")) return true;
+  return EXCLUDED_PRODUCTS.has(u);
+}
+
+function _dtKey(dc, tm){
+    if(!dc) return "";
+    if(!tm) tm = "00:00:00";
+    tm = String(tm).trim();
+    if(tm.length === 5) tm += ":00";
+    return dc + " " + tm;
+  }
+
+  function _parseTimeToSec(tm){
+    tm = (tm||"").toString().trim();
+    if(!tm) return null;
+    // allow HH:MM or HH:MM:SS
+    const parts = tm.split(':').map(n => parseInt(n,10));
+    if(parts.length < 2 || parts.some(n => Number.isNaN(n))) return null;
+    const h = parts[0]||0, m = parts[1]||0, s = parts[2]||0;
+    return h*3600 + m*60 + s;
+  }
+
+  function _countProducts(prodsStr){
+    return _splitProducts(prodsStr).length;
+  }
+
+  function _splitProducts(prodsStr){
+    const s = (prodsStr||"").toString().trim();
+    if(!s || s.toUpperCase()==='NO ITEMS') return [];
+    return s
+      .split('|')
+      .map(x=>x.trim())
+      .filter(Boolean)
+      .filter(p => !_isExcludedProduct(p));
+  }
+
+  function _requiredBatchIds(batch){
+    const expected = (batch && Array.isArray(batch.expected_ids)) ? batch.expected_ids : [];
+    const cancelled = (batch && batch.cancelled_ids) ? Object.keys(batch.cancelled_ids) : [];
+    const cset = new Set(cancelled);
+    return expected.filter(id => !cset.has(id));
+  }
+
+  function _carrierName(batch){
+    const c = (batch && (batch.carrier_override || batch.carrier)) ? (batch.carrier_override || batch.carrier) : 'UNKNOWN';
+    return _u(c) || 'UNKNOWN';
+  }
+
+
+  // Carrier groups by country
+  const CARRIERS_ES = new Set(['NACEX', 'CORREOS ES']);
+  const CARRIERS_PT = new Set(['CTT', 'CTT ILHAS', 'CORREOS PT', 'VASP']);
+
+  function _carrierCountry(carrier){
+    const c = _u(carrier);
+    if(CARRIERS_ES.has(c)) return 'ES';
+    if(CARRIERS_PT.has(c)) return 'PT';
+    return 'OTHER';
+  }
+
+
+  function _dateListInclusive(startISO, endISO){
+    const out=[];
+    const s=new Date(startISO+"T00:00:00");
+    const e=new Date(endISO+"T00:00:00");
+    if(Number.isNaN(s.getTime())||Number.isNaN(e.getTime())) return out;
+    for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)){
+      out.push(d.toISOString().slice(0,10));
+    }
+    return out;
+  }
+
+  function showTab(key){
+    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
+    ['perf','sold','ret','ratio','carriers','opprods','daycar','export'].forEach(k=>{
+      document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
+    });
+  }
+  window.showTab = showTab;
+
+  function _setStatus(s){ document.getElementById('status').innerText = s || ""; }
+
+  async function handleLogin(){
+    const em = document.getElementById('email').value.trim();
+    const pw = document.getElementById('pass').value;
+    const msg = document.getElementById('login-msg');
+    msg.innerText = "";
+
+    try{
+      if(!auth) throw new Error('Firebase not ready');
+      await auth.signInWithEmailAndPassword(em, pw);
+    }catch(e){
+      console.error(e);
+      msg.innerText = "Login error: " + (e && e.message ? e.message : e);
+    }
+  }
+  window.handleLogin = handleLogin;
+
+  function _kpi(title, value, hint){
+    return `<div class="kpi"><div class="t">${title}</div><div class="v">${value}</div><div class="t" style="margin-top:6px;">${hint||""}</div></div>`;
+  }
+
+  function _renderKPIs(t){
+    const el = document.getElementById('kpis');
+    el.innerHTML = [
+      _kpi('Packed IDs', t.packedIds||0, 'PACKING records'),
+      _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING'),
+      _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records'),
+      _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records'),
+      _kpi('Printed IDs', t.printedIds||0, 'From active_batches'),
+      _kpi('Cancelled IDs', t.cancelledIds||0, 'From active_batches'),
+      _kpi('PT %', (t.ptPrintedPct!=null ? (t.ptPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (PT carriers)'),
+      _kpi('ES %', (t.esPrintedPct!=null ? (t.esPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (ES carriers)')
+    ].join('');
+  }
+
+  function _renderPerfRows(rows){
+    const tb = document.querySelector('#tbl-perf tbody');
+    tb.innerHTML = rows.map(r=>{
+      const avg = (r.avgPackSec!=null) ? `${Math.round(r.avgPackSec)}s` : '-';
+      return `<tr>
+        <td><b>${_fmt(r.user)}</b></td>
+        <td>${r.packedIds}</td>
+        <td>${r.packedProducts}</td>
+        <td>${r.returnIds}</td>
+        <td>${r.returnProducts}</td>
+        <td>${r.prepackScans}</td>
+        <td>${avg}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _renderTopTable(tbodySel, rows){
+    const tb = document.querySelector(tbodySel);
+    tb.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`).join('');
+  }
+  function _renderRatio(rows){
+    const tb = document.querySelector('#tbl-ratio tbody');
+    tb.innerHTML = rows.map((r,i)=>{
+      const pct = (r.rate*100);
+      const cls = pct >= 10 ? 'warn' : 'good';
+      return `<tr>
+        <td>${i+1}</td>
+        <td><b>${_fmt(r.product)}</b></td>
+        <td>${r.sold}</td>
+        <td>${r.returns}</td>
+        <td><span class="pill ${cls}">${pct.toFixed(1)}%</span></td>
+      </tr>`;
+    }).join('');
+  }
+
+  function _renderCarriers(rows){
+    const tb = document.querySelector('#tbl-carriers tbody');
+    if(!tb) return;
+    tb.innerHTML = (rows||[]).map(r=>{
+      const pctCountry = (r.printedPct!=null) ? (r.printedPct*100) : 0;
+      const pctTotal = (r.countrySharePct!=null) ? (r.countrySharePct*100) : 0;
+      const cls = pctCountry >= 40 ? 'good' : (pctCountry >= 20 ? 'warn' : '');
+      return `<tr>
+        <td><b>${_fmt(r.country||'')}</b></td>
+        <td><b>${_fmt(r.carrier)}</b></td>
+        <td>${r.printedIds}</td>
+        <td>${r.cancelledIds||0}</td>
+        <td>${cls ? `<span class="pill ${cls}">${pctCountry.toFixed(1)}%</span>` : pctCountry.toFixed(1)+'%'}</td>
+        <td>${pctTotal.toFixed(1)}%</td>
+        <td>${r.batches}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // -------- Products packed by operator (PACKING) --------
+  function _initOperatorProducts(perfRows, packedUserProdMap){
+    const sel = document.getElementById('sel-opprods');
+    if(!sel) return;
+
+    const ops = (perfRows||[]).map(r=>r.user);
+    sel.innerHTML = ops.map(u=>`<option value="${u}">${u}</option>`).join('');
+    if(ops.length) sel.value = ops[0];
+
+    window.__packedUserProdMap = packedUserProdMap || {};
+    renderOperatorProducts();
+  }
+
+  function renderOperatorProducts(){
+    const sel = document.getElementById('sel-opprods');
+    const tb = document.querySelector('#tbl-opprods tbody');
+    if(!sel || !tb) return;
+
+    const u = sel.value;
+    const mp = (window.__packedUserProdMap && window.__packedUserProdMap[u]) ? window.__packedUserProdMap[u] : {};
+
+    const rows = Object.entries(mp)
+      .map(([product,qty])=>({product, qty}))
+      .sort((a,b)=> b.qty - a.qty)
+      .slice(0, 200);
+
+    tb.innerHTML = rows.map((r,i)=>
+      `<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`
+    ).join('');
+  }
+  window.renderOperatorProducts = renderOperatorProducts;
+
+
+  // -------- Products by day & carrier (from batches -> IDs -> PACKING products) --------
+  function _initDayCarrier(dayList, dayCarrierProdMap){
+    const selDay = document.getElementById('sel-daycar-day');
+    const selCarrier = document.getElementById('sel-daycar-carrier');
+    if(!selDay || !selCarrier) return;
+
+    window.__dayCarrierProdMap = dayCarrierProdMap || {};
+
+    // Prefer showing only days that actually have at least 1 carrier in the map
+    const daysWithData = (dayList||[]).filter(d=>{
+      const mp = window.__dayCarrierProdMap[d];
+      return mp && Object.keys(mp).length > 0;
+    });
+    const finalDays = daysWithData.length ? daysWithData : (dayList||[]);
+    window.__dayCarrierDays = finalDays.slice();
+
+    selDay.innerHTML = finalDays.map(d=>`<option value="${d}">${d}</option>`).join('');
+    selDay.value = finalDays.length ? finalDays[0] : '';
+
+    onDayCarrierDayChange();
+  }
+
+  function onDayCarrierDayChange(){
+    const selDay = document.getElementById('sel-daycar-day');
+    const selCarrier = document.getElementById('sel-daycar-carrier');
+    if(!selDay || !selCarrier) return;
+
+    const d = selDay.value;
+    const mp = (window.__dayCarrierProdMap && window.__dayCarrierProdMap[d]) ? window.__dayCarrierProdMap[d] : {};
+    const carriers = Object.keys(mp).sort();
+
+    if(!carriers.length){
+      selCarrier.innerHTML = `<option value="">(no carriers)</option>`;
+      selCarrier.value = '';
+      renderDayCarrierProducts();
+      return;
+    }
+
+    selCarrier.innerHTML = carriers.map(c=>`<option value="${c}">${c}</option>`).join('');
+    selCarrier.value = carriers[0];
+
+    renderDayCarrierProducts();
+  }
+  window.onDayCarrierDayChange = onDayCarrierDayChange;
+
+  function renderDayCarrierProducts(){
+    const selDay = document.getElementById('sel-daycar-day');
+    const selCarrier = document.getElementById('sel-daycar-carrier');
+    const tb = document.querySelector('#tbl-daycar tbody');
+    if(!selDay || !selCarrier || !tb) return;
+
+    const d = selDay.value;
+    const c = selCarrier.value;
+
+    if(!d || !c){
+      tb.innerHTML = `<tr><td colspan="3" class="muted">No data for the selected day.</td></tr>`;
+      return;
+    }
+
+    const bucket = (window.__dayCarrierProdMap && window.__dayCarrierProdMap[d] && window.__dayCarrierProdMap[d][c])
+      ? window.__dayCarrierProdMap[d][c]
+      : {prodMap:{}, collectedIds:0, collectedItems:0};
+
+    const rows = Object.entries(bucket.prodMap || {})
+      .map(([product,qty])=>({product, qty}))
+      .sort((a,b)=> b.qty - a.qty)
+      .slice(0, 200);
+
+    if(!rows.length){
+      tb.innerHTML = `<tr><td colspan="3" class="muted">No products found. (Tip: this depends on matching batch expected_ids with PACKING registos.id)</td></tr>`;
+      return;
+    }
+
+    tb.innerHTML = rows.map((r,i)=>
+      `<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`
+    ).join('');
+  }
+  window.renderDayCarrierProducts = renderDayCarrierProducts;
+
+
+
+
+
+  async function _loadDay(dateClean){
+    // Mesma estratégia do OFF: query por dateClean para evitar varrer a DB toda
+    const [regSnap, ppSnap] = await Promise.all([
+      db.ref('registos').orderByChild('dateClean').equalTo(dateClean).once('value'),
+      db.ref('pre_packing').orderByChild('dateClean').equalTo(dateClean).once('value')
+    ]);
+
+    const regObj = regSnap.val() || {};
+    const ppObj  = ppSnap.val() || {};
+
+    const regList = Object.values(regObj).filter(Boolean);
+    const ppList  = Object.values(ppObj).filter(Boolean);
+
+    return {regList, ppList};
+  }
+
+  async function runAnalytics(){
+    const s = document.getElementById('start').value;
+    const e = document.getElementById('end').value;
+    if(!s || !e) return alert('Select a date range.');
+    if(s > e) return alert('Start date must be <= End date.');
+
+    _setStatus('Loading…');
+
+    const days = _dateListInclusive(s,e);
+    const allReg = [];
+    const allPP = [];
+
+    // Load day-by-day (safer). Could be parallel but we keep sequential to avoid rate limits.
+    for(let i=0;i<days.length;i++){
+      _setStatus(`Loading ${i+1}/${days.length} (${days[i]})…`);
+      const d = await _loadDay(days[i]);
+      allReg.push(...d.regList);
+      allPP.push(...d.ppList);
+    }
+
+    // normalize modes
+    const reg = allReg.map(r=>{
+      const mode = _u(r.mode || r.Type || '');
+      return {
+        user: _u(r.user || 'UNKNOWN'),
+        mode,
+        id: _fmt(r.id||'').trim(),
+        prods: _fmt(r.prods||''),
+        startTime: r.startTime || r.time || '',
+        endTime: r.endTime || r.time || '',
+        dateClean: r.dateClean || '',
+        batch: r.batch || 'GENERAL'
+      };
+    });
+
+    const pp = allPP.map(p=>({
+      user: _u(p.user || p.operator || 'UNKNOWN'),
+      product: _fmt(p.product||p.code||'').trim(),
+      dateClean: p.dateClean || ''
+    }));
+
+    const packed = reg.filter(x=>x.mode==='PACKING');
+    const returns = reg.filter(x=>x.mode==='RETURN' || x.mode==='RETURNS');
+
+    // products packed per operator (user -> {product: qty})
+    const packedUserProdMap = {};
+    packed.forEach(x=>{
+      const u = x.user || 'UNKNOWN';
+      if(!packedUserProdMap[u]) packedUserProdMap[u] = {};
+      _splitProducts(x.prods).forEach(p=>{
+        packedUserProdMap[u][p] = (packedUserProdMap[u][p] || 0) + 1;
+      });
+    });
+
+    // id -> products (from PACKING)
+    // NOTE: expected_ids in batches can be numbers/strings; we normalize keys to trimmed strings.
+    // If the same ID appears multiple times in PACKING, we MERGE products (keeps correct item counts).
+    const packedById = {};
+    packed.forEach(x=>{
+      const key = String(x.id||'').trim();
+      if(!key) return;
+      const prods = _splitProducts(x.prods);
+      if(!packedById[key]) packedById[key] = [];
+      packedById[key].push(...prods);
+    });
+
+
+
+    // totals
+    const totals = {
+      packedIds: packed.length,
+      returnIds: returns.length,
+      packedProducts: packed.reduce((a,x)=>a+_countProducts(x.prods),0),
+      returnProducts: returns.reduce((a,x)=>a+_countProducts(x.prods),0),
+      prepackScans: pp.length
+    };
+
+    // performance per user
+    const byU = {};
+    function ensure(u){
+      if(!byU[u]) byU[u] = {user:u, packedIds:0, packedProducts:0, returnIds:0, returnProducts:0, prepackScans:0, packSecSum:0, packSecN:0};
+      return byU[u];
+    }
+
+    packed.forEach(x=>{
+      const r = ensure(x.user);
+      r.packedIds++;
+      r.packedProducts += _countProducts(x.prods);
+
+      const st = _parseTimeToSec(x.startTime);
+      const et = _parseTimeToSec(x.endTime);
+      if(st!=null && et!=null){
+        let dt = et - st;
+        if(dt < 0) dt += 24*3600; // rollover safe
+        if(dt>=0 && dt<= 4*3600){ // guard: ignore insane durations
+          r.packSecSum += dt;
+          r.packSecN += 1;
+        }
+      }
+    });
+
+    returns.forEach(x=>{
+      const r = ensure(x.user);
+      r.returnIds++;
+      r.returnProducts += _countProducts(x.prods);
+    });
+
+    pp.forEach(x=>{
+      ensure(x.user).prepackScans++;
+    });
+
+    const perfRows = Object.values(byU)
+      .map(r=>({
+        ...r,
+        avgPackSec: r.packSecN ? (r.packSecSum / r.packSecN) : null
+      }))
+      .sort((a,b)=> (b.packedIds - a.packedIds) || a.user.localeCompare(b.user));
+
+
+    // init products-by-operator tab
+    _initOperatorProducts(perfRows, packedUserProdMap);
+
+    // top sold products
+    const soldMap = {};
+    packed.forEach(x=>{
+      _splitProducts(x.prods).forEach(p=>{ soldMap[p] = (soldMap[p]||0) + 1; });
+    });
+    const soldRows = Object.entries(soldMap)
+      .map(([product,qty])=>({product,qty}))
+      .sort((a,b)=>b.qty-a.qty)
+      .slice(0,200);
+
+    // top return products
+    const retMap = {};
+    returns.forEach(x=>{
+      _splitProducts(x.prods).forEach(p=>{ retMap[p] = (retMap[p]||0) + 1; });
+    });
+    const retRows = Object.entries(retMap)
+      .map(([product,qty])=>({product,qty}))
+      .sort((a,b)=>b.qty-a.qty)
+      .slice(0,200);
+
+    // return rate
+    const ratioRows = [];
+    Object.keys(soldMap).forEach(prod=>{
+      const sold = soldMap[prod]||0;
+      const ret = retMap[prod]||0;
+      if(sold >= 10){
+        ratioRows.push({product:prod, sold, returns:ret, rate: sold ? (ret/sold) : 0});
+      }
+    });
+    ratioRows.sort((a,b)=> (b.rate - a.rate) || (b.returns - a.returns) || (b.sold - a.sold));
+
+    // carriers / printed IDs (from active_batches)
+    _setStatus('Loading batches (active_batches)…');
+    let carrierRows = [];
+    try{
+      const daySet = new Set(days);
+      const bSnap = await db.ref('active_batches').once('value');
+      const bObj = bSnap.val() || {};
+
+      // day -> carrier -> {collectedIds, collectedItems, prodMap}
+      const dayCarrierProdMap = {};
+      Object.values(bObj).filter(Boolean).forEach(b=>{
+        const dc = b.dateClean || '';
+        if(!daySet.has(dc)) return;
+
+        const carrier = _carrierName(b);
+        const ids = _requiredBatchIds(b);
+
+        if(!dayCarrierProdMap[dc]) dayCarrierProdMap[dc] = {};
+        if(!dayCarrierProdMap[dc][carrier]) dayCarrierProdMap[dc][carrier] = {collectedIds:0, collectedItems:0, prodMap:{}};
+
+        const bucket = dayCarrierProdMap[dc][carrier];
+        ids.forEach(id=>{
+          const key = String(id).trim();
+          if(!key) return;
+          bucket.collectedIds += 1;
+          const prods = packedById[key] || [];
+          bucket.collectedItems += prods.length;
+          prods.forEach(p=>{
+            bucket.prodMap[p] = (bucket.prodMap[p] || 0) + 1;
+          });
+        });
+      });
+
+      // init UI (default: first day in range)
+      _initDayCarrier(days, dayCarrierProdMap);
+
+      const byC = {}; // carrier -> {country, printedIds,cancelledIds,batches, printedPct (within country), countrySharePct (of total)}
+
+      Object.values(bObj).filter(Boolean).forEach(b=>{
+        const dc = b.dateClean || '';
+        if(!daySet.has(dc)) return;
+
+        const carrier = _carrierName(b);
+        const country = _carrierCountry(carrier);
+        const cancelledN = (b && b.cancelled_ids) ? Object.keys(b.cancelled_ids).length : 0;
+        const printedN = _requiredBatchIds(b).length; // expected minus cancelled
+
+        if(!byC[carrier]) byC[carrier] = {carrier, country, printedIds:0, cancelledIds:0, batches:0, printedPct:0, countrySharePct:0};
+        byC[carrier].printedIds += printedN;
+        byC[carrier].cancelledIds += cancelledN;
+        byC[carrier].batches += 1;
+      });
+
+      carrierRows = Object.values(byC);
+      const totalPrinted = carrierRows.reduce((a,r)=>a + (r.printedIds||0), 0);
+
+      const totalPrintedPT = carrierRows.filter(r=>r.country==='PT').reduce((a,r)=>a + (r.printedIds||0), 0);
+      const totalPrintedES = carrierRows.filter(r=>r.country==='ES').reduce((a,r)=>a + (r.printedIds||0), 0);
+      const totalPrintedOther = totalPrinted - totalPrintedPT - totalPrintedES;
+
+      carrierRows.forEach(r=>{
+        const denom = r.country==='PT' ? totalPrintedPT : (r.country==='ES' ? totalPrintedES : totalPrintedOther || totalPrinted);
+        r.printedPct = denom ? (r.printedIds/denom) : 0; // % within country group
+        r.countrySharePct = totalPrinted ? (r.printedIds/totalPrinted) : 0; // % of total
+      });
+
+      // store country shares in totals (for KPIs)
+      totals.ptPrintedPct = totalPrinted ? (totalPrintedPT/totalPrinted) : 0;
+      totals.esPrintedPct = totalPrinted ? (totalPrintedES/totalPrinted) : 0;
+
+
+      carrierRows.sort((a,b)=> (b.printedIds - a.printedIds) || a.carrier.localeCompare(b.carrier));
+
+      totals.printedIds = totalPrinted;
+      totals.cancelledIds = carrierRows.reduce((a,r)=>a + (r.cancelledIds||0), 0);
+    }catch(e){
+      console.warn('Carrier analysis failed:', e);
+    }
+
+    // render
+    _renderKPIs(totals);
+    _renderPerfRows(perfRows);
+    _renderTopTable('#tbl-sold tbody', soldRows.slice(0,50));
+    _renderTopTable('#tbl-ret tbody', retRows.slice(0,50));
+    _renderRatio(ratioRows.slice(0,100));
+    _renderCarriers(carrierRows);
+
+    // charts
+    _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, carrierRows});
+
+    // cache export
+    __last = {
+      range:{start:s,end:e},
+      perfRows,
+      soldRows,
+      retRows,
+      ratioRows,
+      carrierRows,
+      opProductsMap: packedUserProdMap,
+      dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
+      totals
+    };
+
+    _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS`);
+  }
+  window.runAnalytics = runAnalytics;
+
+  
+
+  // ---------- Charts (Chart.js) ----------
+  const __charts = {trend:null, opsIds:null, opsItems:null, sold:null, ret:null, ratio:null, carrierPrinted:null};
+
+  function _destroyChart(key){
+    const c = __charts[key];
+    if(c){ try{ c.destroy(); }catch(_e){} }
+    __charts[key] = null;
+  }
+
+  function _mkBarChart(canvasId, labels, data, title){
+    const el = document.getElementById(canvasId);
+    if(!el) return null;
+    return new Chart(el, {
+      type: 'bar',
+      data: {
+        labels,
+        datasets: [{ label: title, data }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: { enabled: true }
+        },
+        scales: {
+          x: { ticks: { maxRotation: 0, autoSkip: true } },
+          y: { beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  function _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, carrierRows}){
+    if(typeof Chart === 'undefined') return; // CDN not reachable
+
+    // Trend (daily PACKING vs RETURNS)
+    const packByDay = Object.fromEntries(days.map(d=>[d,0]));
+    const retByDay  = Object.fromEntries(days.map(d=>[d,0]));
+    packed.forEach(x=>{ if(packByDay[x.dateClean] !== undefined) packByDay[x.dateClean]++; });
+    returns.forEach(x=>{ if(retByDay[x.dateClean] !== undefined) retByDay[x.dateClean]++; });
+
+    _destroyChart('trend');
+    const trendEl = document.getElementById('chart-trend');
+    if(trendEl){
+      __charts.trend = new Chart(trendEl, {
+        type: 'line',
+        data: {
+          labels: days,
+          datasets: [
+            { label: 'Packed IDs', data: days.map(d=>packByDay[d]||0), tension: 0.25 },
+            { label: 'Return IDs', data: days.map(d=>retByDay[d]||0), tension: 0.25 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: true } },
+          scales: { y: { beginAtZero: true } }
+        }
+      });
+    }
+
+    // Top operators (two views)
+    const topOpsByIds = [...(perfRows||[])].sort((a,b)=> (b.packedIds - a.packedIds) || a.user.localeCompare(b.user)).slice(0, 12);
+    const topOpsByItems = [...(perfRows||[])].sort((a,b)=> (b.packedProducts - a.packedProducts) || a.user.localeCompare(b.user)).slice(0, 12);
+
+    _destroyChart('opsIds');
+    __charts.opsIds = _mkBarChart('chart-ops-ids', topOpsByIds.map(r=>r.user), topOpsByIds.map(r=>r.packedIds), 'Packed IDs');
+
+    _destroyChart('opsItems');
+    __charts.opsItems = _mkBarChart('chart-ops-items', topOpsByItems.map(r=>r.user), topOpsByItems.map(r=>r.packedProducts), 'Packed items');
+
+    // Top sold
+    const topSold = (soldRows||[]).slice(0, 15);
+    _destroyChart('sold');
+    __charts.sold = _mkBarChart('chart-sold', topSold.map(r=>r.product), topSold.map(r=>r.qty), 'Qty sold');
+
+    // Top returns
+    const topRet = (retRows||[]).slice(0, 15);
+    _destroyChart('ret');
+    __charts.ret = _mkBarChart('chart-ret', topRet.map(r=>r.product), topRet.map(r=>r.qty), 'Qty returned');
+
+    // Return rate
+    const topRate = (ratioRows||[]).filter(r=>r.sold>=10).slice(0, 15);
+    _destroyChart('ratio');
+    __charts.ratio = _mkBarChart('chart-ratio', topRate.map(r=>r.product), topRate.map(r=>Math.round(r.rate*1000)/10), 'Return rate (%)');
+
+    // Printed IDs by carrier
+    const cr = (carrierRows||[]).slice(0, 20);
+    _destroyChart('carrierPrinted');
+    __charts.carrierPrinted = _mkBarChart('chart-carrier-printed', cr.map(r=> `${r.country||''} • ${r.carrier} (${((r.printedPct||0)*100).toFixed(1)}%)`), cr.map(r=>r.printedIds), 'Printed IDs');
+
+  }
+
+  function _csvEscape(v){
+    const s = (v===null||v===undefined) ? '' : String(v);
+    if(/[\n\r,\"]/g.test(s)) return '"'+s.replace(/\"/g,'""')+'"';
+    return s;
+  }
+
+  function _downloadCSV(filename, rows){
+    const csv = rows.map(r=>r.map(_csvEscape).join(',')).join('\n');
+    const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  }
+
+  function exportCSV(kind){
+    if(!__last || !__last.range || !__last.range.start) return alert('Run analysis first.');
+    const tag = `${__last.range.start}_to_${__last.range.end}`;
+
+    if(kind==='performance'){
+      const rows = [['User','Packed_IDs','Packed_Products','Return_IDs','Return_Products','Prepack_Scans','Avg_Pack_Seconds']];
+      __last.perfRows.forEach(r=>rows.push([r.user,r.packedIds,r.packedProducts,r.returnIds,r.returnProducts,r.prepackScans, r.avgPackSec==null?'':Math.round(r.avgPackSec)]));
+      return _downloadCSV(`MURTEDE_Performance_${tag}.csv`, rows);
+    }
+    if(kind==='sold'){
+      const rows = [['Rank','Product','Qty']];
+      __last.soldRows.forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
+      return _downloadCSV(`MURTEDE_TopSold_${tag}.csv`, rows);
+    }
+    if(kind==='returns'){
+      const rows = [['Rank','Product','Qty']];
+      __last.retRows.forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
+      return _downloadCSV(`MURTEDE_TopReturns_${tag}.csv`, rows);
+    }
+
+    if(kind==='carriers'){
+      const rows = [['Country','Carrier','Printed_IDs','Cancelled_IDs','Printed_Pct_Country','Printed_Pct_Total','Batches']];
+      (__last.carrierRows||[]).forEach(r=>rows.push([r.country||'', r.carrier,r.printedIds,r.cancelledIds||0, ((r.printedPct||0)*100).toFixed(2)+'%', ((r.countrySharePct||0)*100).toFixed(2)+'%', r.batches]));
+      return _downloadCSV(`MURTEDE_Carriers_Printed_${tag}.csv`, rows);
+    }
+
+    if(kind==='opproducts'){
+      const rows = [['User','Product','Qty']];
+      const mp = (__last && __last.opProductsMap) ? __last.opProductsMap : (window.__packedUserProdMap || {});
+      Object.keys(mp).sort().forEach(u=>{
+        Object.entries(mp[u]||{})
+          .sort((a,b)=> b[1]-a[1])
+          .forEach(([product,qty])=> rows.push([u, product, qty]));
+      });
+      return _downloadCSV(`MURTEDE_PackedProducts_ByOperator_${tag}.csv`, rows);
+    }
+
+    if(kind==='daycarrier'){
+      const rows = [['Date','Carrier','Product','Qty','IDs','Items']];
+      const mp = (__last && __last.dayCarrierProdMap) ? __last.dayCarrierProdMap : (window.__dayCarrierProdMap || {});
+      Object.keys(mp).sort().forEach(dc=>{
+        Object.keys(mp[dc]||{}).sort().forEach(carrier=>{
+          const bucket = mp[dc][carrier] || {prodMap:{}, collectedIds:0, collectedItems:0};
+          Object.entries(bucket.prodMap||{})
+            .sort((a,b)=> b[1]-a[1])
+            .forEach(([product,qty])=>{
+              rows.push([dc, carrier, product, qty, bucket.collectedIds||0, bucket.collectedItems||0]);
+            });
+        });
+      });
+      return _downloadCSV(`MURTEDE_Products_ByDayCarrier_${tag}.csv`, rows);
+    }
+
+    if(kind==='ratio'){
+      const rows = [['Rank','Product','Sold','Returns','Return_Rate']];
+      __last.ratioRows.forEach((r,i)=>rows.push([i+1,r.product,r.sold,r.returns,(r.rate*100).toFixed(2)+'%']));
+      return _downloadCSV(`MURTEDE_ReturnRate_${tag}.csv`, rows);
+    }
+  }
+  window.exportCSV = exportCSV;
+
+  // init
+  (function(){
+    const today = _nowISO();
+    document.getElementById('start').value = today;
+    document.getElementById('end').value = today;
+
+    try{
+      firebase.initializeApp(firebaseConfig);
+      auth = firebase.auth();
+      db = firebase.database();
+
+      auth.onAuthStateChanged(u=>{
+        if(u){
+          currentUser = u;
+          document.getElementById('login').classList.add('hide');
+          document.getElementById('app').classList.remove('hide');
+          document.getElementById('userline').innerText = `User: ${u.email || '-'}`;
+        }else{
+          currentUser = null;
+          document.getElementById('login').classList.remove('hide');
+          document.getElementById('app').classList.add('hide');
+        }
+      });
+
+    }catch(e){
+      console.error(e);
+      document.getElementById('login-msg').innerText = 'Failed to initialize Firebase (open via http://localhost and make sure the CDN is reachable).';
+    }
+  })();
+</script>
+
+</body>
+</html>
