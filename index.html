@@ -512,6 +512,8 @@ function _dtKey(dc, tm){
       _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records'),
       _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records'),
       _kpi('Printed IDs', t.printedIds||0, 'From active_batches'),
+      _kpi('OFF Items', t.offInvItems||0, 'Sum of active_batches.inventory (excluding WARRANTY)'),
+      _kpi('OFF SKUs', t.offInvSkus||0, 'Unique SKUs in active_batches.inventory (excluding WARRANTY)'),
       _kpi('Cancelled IDs', t.cancelledIds||0, 'From active_batches'),
       _kpi('PT %', (t.ptPrintedPct!=null ? (t.ptPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (PT carriers)'),
       _kpi('ES %', (t.esPrintedPct!=null ? (t.esPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (ES carriers)')
@@ -1003,7 +1005,22 @@ function _dtKey(dc, tm){
         });
       });
 
-      _initOffInventory(carrierInvMap);
+      
+
+      // OFF inventory totals for KPI cards
+      try{
+        const _allCarriers = Object.keys(carrierInvMap||{});
+        let _items = 0;
+        const _skuSet = new Set();
+        _allCarriers.forEach(cc=>{
+          const o = carrierInvMap[cc] || {totalQty:0, skuMap:{}};
+          _items += (o.totalQty||0);
+          Object.keys(o.skuMap||{}).forEach(sku=> _skuSet.add(String(sku)));
+        });
+        totals.offInvItems = _items;
+        totals.offInvSkus = _skuSet.size;
+      }catch(_e){ totals.offInvItems = 0; totals.offInvSkus = 0; }
+_initOffInventory(carrierInvMap);
 
       const byC = {}; // carrier -> {country, printedIds,cancelledIds,batches, printedPct (within country), countrySharePct (of total)}
 
