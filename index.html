@@ -130,6 +130,7 @@
       <div class="tab" data-tab="carriers" onclick="showTab('carriers')">🚚 Carriers</div>
       <div class="tab" data-tab="opprods" onclick="showTab('opprods')">📦 Products by operator</div>
       <div class="tab" data-tab="daycar" onclick="showTab('daycar')">🗓️ Products by day & carrier</div>
+      <div class="tab" data-tab="offinv" onclick="showTab('offinv')">📋 OFF lotes (SKU/QTY)</div>
       <div class="tab" data-tab="export" onclick="showTab('export')">📁 Export</div>
       <span id="status" class="muted" style="margin-left:auto; font-size:12px;"></span>
     </div>
@@ -285,6 +286,48 @@
     </div>
   </div>
 
+  
+  <div id="tab-offinv" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">📋 OFF • Produtos/Quantidades colados em lotes (por transportadora)</h3>
+
+    <div class="grid grid-3" style="margin-bottom:10px;">
+      <div>
+        <label>Carrier</label>
+        <select id="sel-offinv-carrier" onchange="renderOffInvDetail()"></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn secondary" onclick="exportCSV('offinv')">Export CSV (carrier×SKU)</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <span class="muted" style="font-size:12px;">Fonte: <code>active_batches.inventory</code> (o que foi colado no OFFICE &gt; Create New Batch).</span>
+      </div>
+    </div>
+
+    <div class="grid grid-2" style="gap:12px;">
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Resumo por transportadora</b>
+        <div class="scroll" style="margin-top:10px;">
+          <table id="tbl-offinv-carriers">
+            <thead><tr><th>Carrier</th><th>Batches</th><th>SKUs</th><th>Total Qty</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Detalhe (SKU → Qty)</b>
+        <div class="scroll" style="margin-top:10px;">
+          <table id="tbl-offinv">
+            <thead><tr><th>#</th><th>SKU</th><th>Qty</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <div id="tab-export" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">📁 Export</h3>
     <div class="grid grid-2">
@@ -299,6 +342,7 @@
           <button class="btn secondary" onclick="exportCSV('carriers')">Carriers (printed)</button>
           <button class="btn secondary" onclick="exportCSV('opproducts')">Products by operator</button>
           <button class="btn secondary" onclick="exportCSV('daycarrier')">Products by day & carrier</button>
+          <button class="btn secondary" onclick="exportCSV('offinv')">OFF batches (SKU/QTY)</button>
         </div>
       </div>
       <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
@@ -432,7 +476,7 @@ function _dtKey(dc, tm){
 
   function showTab(key){
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
-    ['perf','sold','ret','ratio','carriers','opprods','daycar','export'].forEach(k=>{
+    ['perf','sold','ret','ratio','carriers','opprods','daycar','offinv','export'].forEach(k=>{
       document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
     });
   }
@@ -643,6 +687,76 @@ function _dtKey(dc, tm){
 
 
 
+  // -------- OFF batches inventory (SKU/QTY pasted in OFFICE) by carrier --------
+  function _initOffInventory(carrierInvMap){
+    const sel = document.getElementById('sel-offinv-carrier');
+    if(!sel) return;
+
+    window.__offInvMap = carrierInvMap || {};
+
+    const carriers = Object.keys(window.__offInvMap).sort();
+    sel.innerHTML = carriers.length
+      ? carriers.map(c=>`<option value="${c}">${c}</option>`).join('')
+      : `<option value="">(no data)</option>`;
+
+    sel.value = carriers.length ? carriers[0] : '';
+
+    _renderOffInvSummary();
+    renderOffInvDetail();
+  }
+  window._initOffInventory = _initOffInventory;
+
+  function _renderOffInvSummary(){
+    const tb = document.querySelector('#tbl-offinv-carriers tbody');
+    if(!tb) return;
+
+    const mp = window.__offInvMap || {};
+    const rows = Object.keys(mp).map(c=>{
+      const o = mp[c] || {batches:0,totalQty:0,skuMap:{}};
+      return {
+        carrier: c,
+        batches: o.batches||0,
+        skuCount: Object.keys(o.skuMap||{}).length,
+        totalQty: o.totalQty||0
+      };
+    }).sort((a,b)=> (b.totalQty - a.totalQty) || a.carrier.localeCompare(b.carrier));
+
+    if(!rows.length){
+      tb.innerHTML = `<tr><td colspan="4" class="muted">No batches/inventory found in this date range.</td></tr>`;
+      return;
+    }
+
+    tb.innerHTML = rows.map(r=>
+      `<tr><td><b>${_fmt(r.carrier)}</b></td><td>${r.batches}</td><td>${r.skuCount}</td><td>${r.totalQty}</td></tr>`
+    ).join('');
+  }
+
+  function renderOffInvDetail(){
+    const sel = document.getElementById('sel-offinv-carrier');
+    const tb = document.querySelector('#tbl-offinv tbody');
+    if(!sel || !tb) return;
+
+    const c = sel.value;
+    const mp = window.__offInvMap || {};
+    const o = (c && mp[c]) ? mp[c] : {skuMap:{}};
+
+    const rows = Object.entries(o.skuMap||{})
+      .map(([sku,qty])=>({sku, qty}))
+      .sort((a,b)=> (b.qty - a.qty) || a.sku.localeCompare(b.sku))
+      .slice(0, 500);
+
+    if(!rows.length){
+      tb.innerHTML = `<tr><td colspan="3" class="muted">No SKUs for the selected carrier.</td></tr>`;
+      return;
+    }
+
+    tb.innerHTML = rows.map((r,i)=>
+      `<tr><td>${i+1}</td><td><b>${_fmt(r.sku)}</b></td><td>${r.qty}</td></tr>`
+    ).join('');
+  }
+  window.renderOffInvDetail = renderOffInvDetail;
+
+
 
   async function _loadDay(dateClean){
     // Mesma estratégia do OFF: query por dateClean para evitar varrer a DB toda
@@ -720,7 +834,7 @@ function _dtKey(dc, tm){
     const packedById = {};
     packed.forEach(x=>{
       const key = String(x.id||'').trim();
-      if(!key) return;
+          if(!key) return;
       const prods = _splitProducts(x.prods);
       if(!packedById[key]) packedById[key] = [];
       packedById[key].push(...prods);
@@ -848,6 +962,48 @@ function _dtKey(dc, tm){
 
       // init UI (default: first day in range)
       _initDayCarrier(days, dayCarrierProdMap);
+      // OFF (OFFICE) inventory pasted at batch creation: aggregate SKU quantities by carrier
+
+      function _ignoreOffSku(rawSku){
+        const s0 = String(rawSku||'').trim();
+        if(!s0) return true;
+        const up = s0.toUpperCase();
+        // Normalize: keep only letters/numbers and spaces
+        const norm = up.replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+        const compact = norm.replace(/\s+/g,'');
+
+        // Match common variants: "warranty es", "WARRANTY_ES", "warranty-pt", etc.
+        if(/\bWARRANTY\b\s*\bES\b/.test(norm)) return true;
+        if(/\bWARRANTY\b\s*\bPT\b/.test(norm)) return true;
+        if(compact === 'WARRANTYES') return true;
+        if(compact === 'WARRANTYPT') return true;
+        return false;
+      }
+      const carrierInvMap = {}; // carrier -> {batches,totalQty,skuMap}
+      Object.values(bObj).filter(Boolean).forEach(b=>{
+        const dc = b.dateClean || '';
+        if(!daySet.has(dc)) return;
+
+        const carrier = _carrierName(b);
+        if(!carrierInvMap[carrier]) carrierInvMap[carrier] = {carrier, batches:0, totalQty:0, skuMap:{}};
+        const bucket = carrierInvMap[carrier];
+        bucket.batches += 1;
+
+        const inv = b.inventory || {};
+        Object.keys(inv).forEach(sku=>{
+          const key = String(sku||'').trim().toUpperCase();
+          const keyNorm = key.replace(/\s+/g,' ').trim();
+          if(!keyNorm) return;
+          if(_ignoreOffSku(sku)) return;
+          const qRaw = (inv[sku] && typeof inv[sku]==='object') ? inv[sku].q : inv[sku];
+          const q = parseInt(qRaw, 10);
+          if(!Number.isFinite(q) || q<=0) return;
+          bucket.skuMap[key] = (bucket.skuMap[key]||0) + q;
+          bucket.totalQty += q;
+        });
+      });
+
+      _initOffInventory(carrierInvMap);
 
       const byC = {}; // carrier -> {country, printedIds,cancelledIds,batches, printedPct (within country), countrySharePct (of total)}
 
@@ -913,6 +1069,7 @@ function _dtKey(dc, tm){
       carrierRows,
       opProductsMap: packedUserProdMap,
       dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
+      offInvMap: (window.__offInvMap || {}),
       totals
     };
 
@@ -1087,6 +1244,20 @@ function _dtKey(dc, tm){
         });
       });
       return _downloadCSV(`MURTEDE_Products_ByDayCarrier_${tag}.csv`, rows);
+    }
+
+    if(kind==='offinv'){
+      const rows = [['Carrier','SKU','Qty','Batches','TotalQtyCarrier']];
+      const mp = (__last && __last.offInvMap) ? __last.offInvMap : (window.__offInvMap || {});
+      Object.keys(mp).sort().forEach(carrier=>{
+        const o = mp[carrier] || {batches:0,totalQty:0,skuMap:{}};
+        Object.entries(o.skuMap||{})
+          .sort((a,b)=> (b[1]-a[1]) || String(a[0]).localeCompare(String(b[0])))
+          .forEach(([sku,qty])=>{
+            rows.push([carrier, sku, qty, o.batches||0, o.totalQty||0]);
+          });
+      });
+      return _downloadCSV(`MURTEDE_OFF_Batches_Inventory_${tag}.csv`, rows);
     }
 
     if(kind==='ratio'){
