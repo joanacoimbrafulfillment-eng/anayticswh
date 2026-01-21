@@ -171,6 +171,7 @@
             <th>Returned Items</th>
             <th>Pre-pack Scans</th>
             <th>Avg. pack time</th>
+            <th>Avg. return time</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -523,7 +524,8 @@ function _dtKey(dc, tm){
   function _renderPerfRows(rows){
     const tb = document.querySelector('#tbl-perf tbody');
     tb.innerHTML = rows.map(r=>{
-      const avg = (r.avgPackSec!=null) ? `${Math.round(r.avgPackSec)}s` : '-';
+      const avgPack = (r.avgPackSec!=null) ? `${Math.round(r.avgPackSec)}s` : '-';
+      const avgRet  = (r.avgReturnSec!=null) ? `${Math.round(r.avgReturnSec)}s` : '-';
       return `<tr>
         <td><b>${_fmt(r.user)}</b></td>
         <td>${r.packedIds}</td>
@@ -531,7 +533,8 @@ function _dtKey(dc, tm){
         <td>${r.returnIds}</td>
         <td>${r.returnProducts}</td>
         <td>${r.prepackScans}</td>
-        <td>${avg}</td>
+        <td>${avgPack}</td>
+        <td>${avgRet}</td>
       </tr>`;
     }).join('');
   }
@@ -858,7 +861,7 @@ function _dtKey(dc, tm){
     // performance per user
     const byU = {};
     function ensure(u){
-      if(!byU[u]) byU[u] = {user:u, packedIds:0, packedProducts:0, returnIds:0, returnProducts:0, prepackScans:0, packSecSum:0, packSecN:0};
+      if(!byU[u]) byU[u] = {user:u, packedIds:0, packedProducts:0, returnIds:0, returnProducts:0, prepackScans:0, packSecSum:0, packSecN:0, returnSecSum:0, returnSecN:0};
       return byU[u];
     }
 
@@ -892,6 +895,27 @@ function _dtKey(dc, tm){
       const r = ensure(x.user);
       r.returnIds++;
       r.returnProducts += _countProducts(x.prods);
+
+      let dt = null;
+
+      // Prefer numeric timestamps when available (milliseconds since epoch)
+      if(Number.isFinite(x.startTs) && Number.isFinite(x.endTs)){
+        dt = (x.endTs - x.startTs) / 1000;
+      } else {
+        // Fallback to HH:MM(:SS) strings
+        const st = _parseTimeToSec(x.startTime);
+        const et = _parseTimeToSec(x.endTime);
+        if(st!=null && et!=null){
+          dt = et - st;
+          if(dt < 0) dt += 24*3600; // rollover safe
+        }
+      }
+
+      if(dt!=null && dt>=0 && dt<= 4*3600){ // guard: ignore insane durations
+        r.returnSecSum += dt;
+        r.returnSecN += 1;
+      }
+
     });
 
     pp.forEach(x=>{
@@ -901,7 +925,8 @@ function _dtKey(dc, tm){
     const perfRows = Object.values(byU)
       .map(r=>({
         ...r,
-        avgPackSec: r.packSecN ? (r.packSecSum / r.packSecN) : null
+        avgPackSec: r.packSecN ? (r.packSecSum / r.packSecN) : null,
+        avgReturnSec: r.returnSecN ? (r.returnSecSum / r.returnSecN) : null
       }))
       .sort((a,b)=> (b.packedIds - a.packedIds) || a.user.localeCompare(b.user));
 
@@ -1226,7 +1251,7 @@ _initOffInventory(carrierInvMap);
     const tag = `${__last.range.start}_to_${__last.range.end}`;
 
     if(kind==='performance'){
-      const rows = [['User','Packed_IDs','Packed_Products','Return_IDs','Return_Products','Prepack_Scans','Avg_Pack_Seconds']];
+      const rows = [['User','Packed_IDs','Packed_Products','Return_IDs','Return_Products','Prepack_Scans','Avg_Pack_Seconds','Avg_Return_Seconds']];
       __last.perfRows.forEach(r=>rows.push([r.user,r.packedIds,r.packedProducts,r.returnIds,r.returnProducts,r.prepackScans, r.avgPackSec==null?'':Math.round(r.avgPackSec)]));
       return _downloadCSV(`MURTEDE_Performance_${tag}.csv`, rows);
     }
