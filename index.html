@@ -804,8 +804,10 @@ function _dtKey(dc, tm){
         mode,
         id: _fmt(r.id||'').trim(),
         prods: _fmt(r.prods||''),
-        startTime: r.startTime || r.time || '',
-        endTime: r.endTime || r.time || '',
+        startTime: r.startTime || '',
+        endTime: r.endTime || '',
+        startTs: (typeof r.startTs === 'number') ? r.startTs : null,
+        endTs: (typeof r.endTs === 'number') ? r.endTs : null,
         dateClean: r.dateClean || '',
         batch: r.batch || 'GENERAL'
       };
@@ -865,15 +867,24 @@ function _dtKey(dc, tm){
       r.packedIds++;
       r.packedProducts += _countProducts(x.prods);
 
-      const st = _parseTimeToSec(x.startTime);
-      const et = _parseTimeToSec(x.endTime);
-      if(st!=null && et!=null){
-        let dt = et - st;
-        if(dt < 0) dt += 24*3600; // rollover safe
-        if(dt>=0 && dt<= 4*3600){ // guard: ignore insane durations
-          r.packSecSum += dt;
-          r.packSecN += 1;
+      let dt = null;
+
+      // Prefer numeric timestamps when available (milliseconds since epoch)
+      if(Number.isFinite(x.startTs) && Number.isFinite(x.endTs)){
+        dt = (x.endTs - x.startTs) / 1000;
+      } else {
+        // Fallback to HH:MM(:SS) strings
+        const st = _parseTimeToSec(x.startTime);
+        const et = _parseTimeToSec(x.endTime);
+        if(st!=null && et!=null){
+          dt = et - st;
+          if(dt < 0) dt += 24*3600; // rollover safe
         }
+      }
+
+      if(dt!=null && dt>=0 && dt<= 4*3600){ // guard: ignore insane durations
+        r.packSecSum += dt;
+        r.packSecN += 1;
       }
     });
 
