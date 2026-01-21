@@ -124,6 +124,7 @@
 
     <div class="tabs">
       <div class="tab active" data-tab="perf" onclick="showTab('perf')">👥 Performance</div>
+      <div class="tab" data-tab="pick" onclick="showTab('pick')">🧺 Picking</div>
       <div class="tab" data-tab="sold" onclick="showTab('sold')">🔥 Top sold</div>
       <div class="tab" data-tab="ret" onclick="showTab('ret')">↩️ Top returns</div>
       <div class="tab" data-tab="ratio" onclick="showTab('ratio')">📉 Return rate</div>
@@ -172,6 +173,27 @@
             <th>Pre-pack Scans</th>
             <th>Avg. pack time</th>
             <th>Avg. return time</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-pick" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">🧺 Picking by operator</h3>
+    <div class="muted" style="font-size:12px; margin:0 0 10px 0;">
+      Based on <code>active_batches</code> records with <code>pickedBy</code>/<code>picked_by</code>.
+      IDs = expected IDs excluding cancelled; Products = inventory qty sum excluding WARRANTY ES/PT.
+    </div>
+    <div class="scroll">
+      <table id="tbl-pick">
+        <thead>
+          <tr>
+            <th>Operator</th>
+            <th>Batches picked</th>
+            <th>Picked IDs</th>
+            <th>Picked products</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -384,6 +406,7 @@
   let __last = {
     range: {start:"", end:""},
     perfRows: [],
+    pickRows: [],
     soldRows: [],
     retRows: [],
     ratioRows: [],
@@ -477,7 +500,7 @@ function _dtKey(dc, tm){
 
   function showTab(key){
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
-    ['perf','sold','ret','ratio','carriers','opprods','daycar','offinv','export'].forEach(k=>{
+    ['perf','pick','sold','ret','ratio','carriers','opprods','daycar','offinv','export'].forEach(k=>{
       document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
     });
   }
@@ -539,7 +562,21 @@ function _dtKey(dc, tm){
     }).join('');
   }
 
-  function _renderTopTable(tbodySel, rows){
+  
+  function _renderPickRows(rows){
+    const tb = document.querySelector('#tbl-pick tbody');
+    if(!tb) return;
+    tb.innerHTML = rows.map(r=>{
+      return `<tr>
+        <td><b>${_fmt(r.user)}</b></td>
+        <td>${r.pickedBatches}</td>
+        <td>${r.pickedIds}</td>
+        <td>${r.pickedProducts}</td>
+      </tr>`;
+    }).join('');
+  }
+
+function _renderTopTable(tbodySel, rows){
     const tb = document.querySelector(tbodySel);
     tb.innerHTML = rows.map((r,i)=>`<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`).join('');
   }
@@ -968,10 +1005,36 @@ function _dtKey(dc, tm){
     // carriers / printed IDs (from active_batches)
     _setStatus('Loading batches (active_batches)…');
     let carrierRows = [];
+    let pickRows = [];
     try{
       const daySet = new Set(days);
       const bSnap = await db.ref('active_batches').once('value');
       const bObj = bSnap.val() || {};
+
+      // picking by operator (from active_batches)
+      const pickMap = {}; // user -> {pickedBatches,pickedIds,pickedProducts}
+      Object.values(bObj).filter(Boolean).forEach(b=>{
+        const dc = b.dateClean || '';
+        if(!daySet.has(dc)) return;
+        const u = _u(b.picked_by || b.pickedBy || b.picked_by_user || b.pickedByUser || '');
+        if(!u) return;
+
+        if(!pickMap[u]) pickMap[u] = {user:u, pickedBatches:0, pickedIds:0, pickedProducts:0};
+        pickMap[u].pickedBatches += 1;
+
+        // IDs: expected minus cancelled
+        pickMap[u].pickedIds += _requiredBatchIds(b).length;
+
+        // Products: sum inventory qty, ignoring warranty ES/PT
+        const inv = b.inventory || {};
+        for(const sku in inv){
+          if(!sku) continue;
+          if(_ignoreOffSku(sku)) continue; // ignore WARRANTY ES/PT
+          const q = Number((inv[sku]||{}).q || 0);
+          if(!isNaN(q)) pickMap[u].pickedProducts += q;
+        }
+      });
+      pickRows = Object.values(pickMap).sort((a,b)=> (b.pickedIds-a.pickedIds) || (b.pickedProducts-a.pickedProducts));
 
       // day -> carrier -> {collectedIds, collectedItems, prodMap}
       const dayCarrierProdMap = {};
@@ -1104,6 +1167,7 @@ _initOffInventory(carrierInvMap);
     // render
     _renderKPIs(totals);
     _renderPerfRows(perfRows);
+    _renderPickRows(pickRows);
     _renderTopTable('#tbl-sold tbody', soldRows.slice(0,50));
     _renderTopTable('#tbl-ret tbody', retRows.slice(0,50));
     _renderRatio(ratioRows.slice(0,100));
@@ -1116,6 +1180,7 @@ _initOffInventory(carrierInvMap);
     __last = {
       range:{start:s,end:e},
       perfRows,
+      pickRows,
       soldRows,
       retRows,
       ratioRows,
@@ -1254,6 +1319,11 @@ _initOffInventory(carrierInvMap);
       const rows = [['User','Packed_IDs','Packed_Products','Return_IDs','Return_Products','Prepack_Scans','Avg_Pack_Seconds','Avg_Return_Seconds']];
       __last.perfRows.forEach(r=>rows.push([r.user,r.packedIds,r.packedProducts,r.returnIds,r.returnProducts,r.prepackScans, r.avgPackSec==null?'':Math.round(r.avgPackSec)]));
       return _downloadCSV(`MURTEDE_Performance_${tag}.csv`, rows);
+    }
+    if(kind==='picking'){
+      const rows = [['User','Picked_Batches','Picked_IDs','Picked_Products']];
+      (__last.pickRows||[]).forEach(r=>rows.push([r.user, r.pickedBatches, r.pickedIds, r.pickedProducts]));
+      return _downloadCSV(`MURTEDE_Picking_${tag}.csv`, rows);
     }
     if(kind==='sold'){
       const rows = [['Rank','Product','Qty']];
