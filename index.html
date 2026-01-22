@@ -130,6 +130,7 @@
       <div class="tab" data-tab="ratio" onclick="showTab('ratio')">📉 Return rate</div>
       <div class="tab" data-tab="carriers" onclick="showTab('carriers')">🚚 Carriers</div>
       <div class="tab" data-tab="opprods" onclick="showTab('opprods')">📦 Products by operator</div>
+      <div class="tab" data-tab="oprets" onclick="showTab('oprets')">↩️ Returns by operator</div>
       <div class="tab" data-tab="daycar" onclick="showTab('daycar')">🗓️ Products by day & carrier</div>
       <div class="tab" data-tab="offinv" onclick="showTab('offinv')">📋 OFF lotes (SKU/QTY)</div>
       <div class="tab" data-tab="export" onclick="showTab('export')">📁 Export</div>
@@ -153,6 +154,14 @@
           <div style="height:260px;">
             <div class="muted" style="font-size:12px; margin-bottom:6px;">Packed items</div>
             <div style="height:230px;"><canvas id="chart-ops-items"></canvas></div>
+          </div>
+          <div style="height:260px;">
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Return IDs</div>
+            <div style="height:230px;"><canvas id="chart-ret-ops-ids"></canvas></div>
+          </div>
+          <div style="height:260px;">
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Returned items</div>
+            <div style="height:230px;"><canvas id="chart-ret-ops-items"></canvas></div>
           </div>
         </div>
       </div>
@@ -277,7 +286,63 @@
     </div>
   </div>
 
-  
+
+    <div id="tab-oprets" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">↩️ Returns by operator (RETURN/RETURNS)</h3>
+
+    <!-- Same operator→products view as PACKING (Products by operator) -->
+    <div class="grid grid-3" style="margin-bottom:10px;">
+      <div>
+        <label>Operator</label>
+        <select id="sel-oprets" onchange="renderOperatorReturns()"></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn secondary" onclick="exportCSV('opreturns_products')">Export CSV (operator×returned product)</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <span class="muted" style="font-size:12px;">Counts items inside RETURN/RETURNS (excluding WARRANTY products).</span>
+      </div>
+    </div>
+
+    <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+      <b>Returned products (qty)</b>
+      <div style="height:240px; margin-top:10px;"><canvas id="chart-oprets-prods"></canvas></div>
+      <div class="scroll" style="margin-top:10px;">
+        <table id="tbl-oprets-prods">
+          <thead><tr><th>#</th><th>Product</th><th>Qty</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Optional: keep IDs view available, but tucked away so the main view matches PACKING -->
+    <details style="margin-top:12px;">
+      <summary class="muted" style="cursor:pointer; font-weight:650;">Show returned IDs (items)</summary>
+
+      <div class="grid grid-3" style="margin-top:10px; margin-bottom:10px;">
+        <div></div>
+        <div></div>
+        <div>
+          <button class="btn secondary" onclick="exportCSV('opreturns_ids')">Export CSV (operator×returned id)</button>
+        </div>
+      </div>
+
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Returned IDs (items)</b>
+        <div class="muted" style="font-size:12px; margin-top:6px;">Items = number of non-WARRANTY products in RETURN/RETURNS for the ID.</div>
+        <div style="height:240px; margin-top:10px;"><canvas id="chart-oprets-ids"></canvas></div>
+        <div class="scroll" style="margin-top:10px;">
+          <table id="tbl-oprets-ids">
+            <thead><tr><th>#</th><th>ID</th><th>Items</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>
+
   <div id="tab-daycar" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">🗓️ Products created in batch (IDs) by day & carrier</h3>
 
@@ -364,6 +429,8 @@
           <button class="btn secondary" onclick="exportCSV('ratio')">Return rate</button>
           <button class="btn secondary" onclick="exportCSV('carriers')">Carriers (printed)</button>
           <button class="btn secondary" onclick="exportCSV('opproducts')">Products by operator</button>
+          <button class="btn secondary" onclick="exportCSV('opreturns_products')">Returns by operator (products)</button>
+          <button class="btn secondary" onclick="exportCSV('opreturns_ids')">Returns by operator (IDs)</button>
           <button class="btn secondary" onclick="exportCSV('daycarrier')">Products by day & carrier</button>
           <button class="btn secondary" onclick="exportCSV('offinv')">OFF batches (SKU/QTY)</button>
         </div>
@@ -412,6 +479,8 @@
     ratioRows: [],
     carrierRows: [],
     opProductsMap: {},
+    opReturnsProductsMap: {},
+    opReturnsIdsMap: {},
     dayCarrierProdMap: {},
     totals: {}
   };
@@ -500,7 +569,7 @@ function _dtKey(dc, tm){
 
   function showTab(key){
     document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
-    ['perf','pick','sold','ret','ratio','carriers','opprods','daycar','offinv','export'].forEach(k=>{
+    ['perf','pick','sold','ret','ratio','carriers','opprods','oprets','daycar','offinv','export'].forEach(k=>{
       document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
     });
   }
@@ -644,6 +713,90 @@ function _renderTopTable(tbodySel, rows){
       `<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`
     ).join('');
   }
+
+  // -------- Returns by operator (RETURN/RETURNS): products + IDs --------
+  function _initOperatorReturns(perfRows, returnsUserProdMap, returnsUserIdMap){
+    const sel = document.getElementById('sel-oprets');
+    if(!sel) return;
+
+    // Build a stable operator list: union of perf users + users that appear in returns
+    const opsSet = new Set();
+    (perfRows||[]).forEach(r=> opsSet.add(r.user));
+    Object.keys(returnsUserProdMap||{}).forEach(u=> opsSet.add(u));
+    Object.keys(returnsUserIdMap||{}).forEach(u=> opsSet.add(u));
+
+    const ops = Array.from(opsSet).filter(Boolean).sort((a,b)=> a.localeCompare(b));
+    sel.innerHTML = ops.map(u=>`<option value="${u}">${u}</option>`).join('');
+    sel.value = ops.length ? ops[0] : '';
+
+    window.__returnsUserProdMap = returnsUserProdMap || {};
+    window.__returnsUserIdMap = returnsUserIdMap || {};
+    renderOperatorReturns();
+  }
+
+  function renderOperatorReturns(){
+    const sel = document.getElementById('sel-oprets');
+    const tbProds = document.querySelector('#tbl-oprets-prods tbody');
+    const tbIds = document.querySelector('#tbl-oprets-ids tbody');
+    if(!sel || !tbProds || !tbIds) return;
+
+    const u = sel.value;
+
+    // Products
+    const mp = (window.__returnsUserProdMap && window.__returnsUserProdMap[u]) ? window.__returnsUserProdMap[u] : {};
+    const prodRows = Object.entries(mp)
+      .map(([product,qty])=>({product, qty}))
+      .sort((a,b)=> b.qty - a.qty)
+      .slice(0, 300);
+
+    tbProds.innerHTML = prodRows.length
+      ? prodRows.map((r,i)=> `<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`).join('')
+      : `<tr><td colspan="3" class="muted">No RETURN/RETURNS products for this operator in the selected range.</td></tr>`;
+
+    // IDs
+    const idMap = (window.__returnsUserIdMap && window.__returnsUserIdMap[u]) ? window.__returnsUserIdMap[u] : {};
+    const idRows = Object.entries(idMap)
+      .map(([id,items])=>({id, items}))
+      .sort((a,b)=> (b.items - a.items) || a.id.localeCompare(b.id))
+      .slice(0, 500);
+
+    tbIds.innerHTML = idRows.length
+      ? idRows.map((r,i)=> `<tr><td>${i+1}</td><td><b>${_fmt(r.id)}</b></td><td>${r.items}</td></tr>`).join('')
+      : `<tr><td colspan="3" class="muted">No RETURN/RETURNS IDs for this operator in the selected range.</td></tr>`;
+
+    _renderOperatorReturnsCharts(prodRows, idRows);
+  }
+  window.renderOperatorReturns = renderOperatorReturns;
+
+
+  function _renderOperatorReturnsCharts(prodRows, idRows){
+    if(typeof Chart === 'undefined') return;
+
+    // Returned products chart
+    const topProds = (prodRows||[]).slice(0, 15);
+    _destroyChart('opRetProds');
+    if(document.getElementById('chart-oprets-prods')){
+      __charts.opRetProds = _mkBarChart(
+        'chart-oprets-prods',
+        topProds.map(r=>r.product),
+        topProds.map(r=>r.qty),
+        'Returned products'
+      );
+    }
+
+    // Returned IDs chart (items)
+    const topIds = (idRows||[]).slice(0, 15);
+    _destroyChart('opRetIds');
+    if(document.getElementById('chart-oprets-ids')){
+      __charts.opRetIds = _mkBarChart(
+        'chart-oprets-ids',
+        topIds.map(r=>r.id),
+        topIds.map(r=>r.items),
+        'Returned items (by ID)'
+      );
+    }
+  }
+
   window.renderOperatorProducts = renderOperatorProducts;
 
 
@@ -872,6 +1025,27 @@ function _renderTopTable(tbodySel, rows){
       });
     });
 
+
+    // returns by operator: products + IDs (RETURN/RETURNS)
+    const returnsUserProdMap = {}; // user -> {product: qty}
+    const returnsUserIdMap = {};   // user -> {id: items}
+    returns.forEach(x=>{
+      const u = x.user || 'UNKNOWN';
+      if(!returnsUserProdMap[u]) returnsUserProdMap[u] = {};
+      if(!returnsUserIdMap[u]) returnsUserIdMap[u] = {};
+
+      // products (excluding WARRANTY)
+      _splitProducts(x.prods).forEach(p=>{
+        returnsUserProdMap[u][p] = (returnsUserProdMap[u][p] || 0) + 1;
+      });
+
+      // IDs: sum items (excluding WARRANTY) per ID
+      const keyId = String(x.id||'').trim();
+      if(keyId){
+        returnsUserIdMap[u][keyId] = (returnsUserIdMap[u][keyId] || 0) + _countProducts(x.prods);
+      }
+    });
+
     // id -> products (from PACKING)
     // NOTE: expected_ids in batches can be numbers/strings; we normalize keys to trimmed strings.
     // If the same ID appears multiple times in PACKING, we MERGE products (keeps correct item counts).
@@ -970,6 +1144,9 @@ function _renderTopTable(tbodySel, rows){
 
     // init products-by-operator tab
     _initOperatorProducts(perfRows, packedUserProdMap);
+
+    // init returns-by-operator tab
+    _initOperatorReturns(perfRows, returnsUserProdMap, returnsUserIdMap);
 
     // top sold products
     const soldMap = {};
@@ -1186,6 +1363,8 @@ _initOffInventory(carrierInvMap);
       ratioRows,
       carrierRows,
       opProductsMap: packedUserProdMap,
+      opReturnsProductsMap: returnsUserProdMap,
+      opReturnsIdsMap: returnsUserIdMap,
       dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
       offInvMap: (window.__offInvMap || {}),
       totals
@@ -1198,7 +1377,7 @@ _initOffInventory(carrierInvMap);
   
 
   // ---------- Charts (Chart.js) ----------
-  const __charts = {trend:null, opsIds:null, opsItems:null, sold:null, ret:null, ratio:null, carrierPrinted:null};
+  const __charts = {trend:null, opsIds:null, opsItems:null, retOpsIds:null, retOpsItems:null, sold:null, ret:null, ratio:null, carrierPrinted:null, opRetProds:null, opRetIds:null};
 
   function _destroyChart(key){
     const c = __charts[key];
@@ -1269,6 +1448,16 @@ _initOffInventory(carrierInvMap);
 
     _destroyChart('opsItems');
     __charts.opsItems = _mkBarChart('chart-ops-items', topOpsByItems.map(r=>r.user), topOpsByItems.map(r=>r.packedProducts), 'Packed items');
+
+    // Top operators (returns)
+    const topRetOpsByIds = [...(perfRows||[])].sort((a,b)=> (b.returnIds - a.returnIds) || a.user.localeCompare(b.user)).slice(0, 12);
+    const topRetOpsByItems = [...(perfRows||[])].sort((a,b)=> (b.returnProducts - a.returnProducts) || a.user.localeCompare(b.user)).slice(0, 12);
+
+    _destroyChart('retOpsIds');
+    __charts.retOpsIds = _mkBarChart('chart-ret-ops-ids', topRetOpsByIds.map(r=>r.user), topRetOpsByIds.map(r=>r.returnIds), 'Return IDs');
+
+    _destroyChart('retOpsItems');
+    __charts.retOpsItems = _mkBarChart('chart-ret-ops-items', topRetOpsByItems.map(r=>r.user), topRetOpsByItems.map(r=>r.returnProducts), 'Returned items');
 
     // Top sold
     const topSold = (soldRows||[]).slice(0, 15);
@@ -1352,6 +1541,29 @@ _initOffInventory(carrierInvMap);
       });
       return _downloadCSV(`MURTEDE_PackedProducts_ByOperator_${tag}.csv`, rows);
     }
+
+    if(kind==='opreturns_products'){
+      const rows = [['User','Product','Qty']];
+      const mp = (__last && __last.opReturnsProductsMap) ? __last.opReturnsProductsMap : (window.__returnsUserProdMap || {});
+      Object.keys(mp).sort().forEach(u=>{
+        Object.entries(mp[u]||{})
+          .sort((a,b)=> b[1]-a[1])
+          .forEach(([product,qty])=> rows.push([u, product, qty]));
+      });
+      return _downloadCSV(`MURTEDE_ReturnsProducts_ByOperator_${tag}.csv`, rows);
+    }
+
+    if(kind==='opreturns_ids'){
+      const rows = [['User','ID','Items']];
+      const mp = (__last && __last.opReturnsIdsMap) ? __last.opReturnsIdsMap : (window.__returnsUserIdMap || {});
+      Object.keys(mp).sort().forEach(u=>{
+        Object.entries(mp[u]||{})
+          .sort((a,b)=> (b[1]-a[1]) || String(a[0]).localeCompare(String(b[0])))
+          .forEach(([id,items])=> rows.push([u, id, items]));
+      });
+      return _downloadCSV(`MURTEDE_ReturnsIDs_ByOperator_${tag}.csv`, rows);
+    }
+
 
     if(kind==='daycarrier'){
       const rows = [['Date','Carrier','Product','Qty','IDs','Items']];
