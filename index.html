@@ -88,7 +88,13 @@
         <label>Password</label>
         <input id="pass" type="password" placeholder="••••••••" />
       </div>
-      <button class="btn" onclick="handleLogin()">SIGN IN</button>
+   <button class="btn" onclick="handleLogin()">SIGN IN</button>
+      
+      <button class="btn" onclick="handleGoogleLogin()" style="background:#4285F4; display:flex; align-items:center; justify-content:center; gap:8px; margin-top:5px;">
+        <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="16" height="16" style="background:white; padding:2px; border-radius:2px;">
+        GOOGLE SIGN IN
+      </button>
+
       <div id="login-msg" class="muted" style="font-size:12px;"></div>
     </div>
   </div>
@@ -592,6 +598,22 @@ function _dtKey(dc, tm){
     }
   }
   window.handleLogin = handleLogin;
+
+  async function handleGoogleLogin() {
+    const msg = document.getElementById('login-msg'); 
+    msg.innerText = "Connecting to Google...";
+    try {
+      if(!auth) throw new Error('Firebase not ready');
+      const provider = new firebase.auth.GoogleAuthProvider();
+      
+      await auth.signInWithPopup(provider);
+      
+    } catch (e) {
+      console.error(e);
+      msg.innerText = "Google Error: " + (e && e.message ? e.message : e);
+    }
+  }
+  window.handleGoogleLogin = handleGoogleLogin;
 
   function _kpi(title, value, hint){
     return `<div class="kpi"><div class="t">${title}</div><div class="v">${value}</div><div class="t" style="margin-top:6px;">${hint||""}</div></div>`;
