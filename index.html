@@ -1635,7 +1635,6 @@ _initOffInventory(carrierInvMap);
   }
   window.exportCSV = exportCSV;
 
-  // init
   (function(){
     const today = _nowISO();
     document.getElementById('start').value = today;
@@ -1672,14 +1671,19 @@ _initOffInventory(carrierInvMap);
       document.getElementById('login').classList.add('hide');
       document.getElementById('app').classList.remove('hide');
       document.getElementById('userline').innerText = `${role.toUpperCase()}: ${u.email}`;
+      document.getElementById('login-msg').innerText = "";
     } else {
       alert("Access Denied: Unauthorized user.");
       await auth.signOut();
+      document.getElementById('login-msg').innerText = "";
     }
 
   } else {
     document.getElementById('login').classList.remove('hide');
     document.getElementById('app').classList.add('hide');
+    
+    const msg = document.getElementById('login-msg');
+    if(msg) msg.innerText = "";
   }
 });
 </script>
