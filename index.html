@@ -1640,52 +1640,87 @@ _initOffInventory(carrierInvMap);
     document.getElementById('start').value = today;
     document.getElementById('end').value = today;
 
-    try{
-      firebase.initializeApp(firebaseConfig);
-      auth = firebase.auth();
-      db = firebase.database();
+    try {
+        firebase.initializeApp(firebaseConfig);
+        auth = firebase.auth();
+        db = firebase.database();
+        auth.onAuthStateChanged(async (u) => {
+            const msg = document.getElementById('login-msg');
+            if (u) {
+                currentUser = u;
+                const email = u.email.toLowerCase();
+                let role = null;
+                if (email.endsWith('@admin.com')) {
+                    role = 'ADMIN';
+                } else if (email.endsWith('@wh.com')) {
+                    role = 'WH';
+                } 
+                else {
+                    const emailKey = email.replace(/\./g, '_');
+                    try {
+                        const snap = await db.ref(`authorized_users/${emailKey}`).once('value');
+                        role = snap.val();
+                    } catch (e) {
+                        console.error("Database read error:", e);
+                    }
+                }
 
-      auth.onAuthStateChanged(async (u) => {
-  if (u) {
-    currentUser = u;
-    const email = u.email.toLowerCase();
-    let role = null;
+                if (role) {
+                    document.getElementById('login').classList.add('hide');
+                    document.getElementById('app').classList.remove('hide');
+                    document.getElementById('userline').innerText = `${role.toUpperCase()}: ${u.email}`;
+                    if(msg) msg.innerText = "";
+                } else {
+                    alert("Access Denied: Unauthorized user.");
+                    await auth.signOut();
+                    if(msg) msg.innerText = "";
+                }
+            } else {
+                document.getElementById('login').classList.remove('hide');
+                document.getElementById('app').classList.add('hide');
+                if(msg) msg.innerText = "";
+            }
+        });
+        window.handleGoogleLogin = async function() {
+            const msg = document.getElementById('login-msg');
+            if(msg) msg.innerText = "Connecting to Google...";
+            try {
+                const provider = new firebase.auth.GoogleAuthProvider();
+                await auth.signInWithPopup(provider);
+            } catch (e) {
+                console.error(e);
+                if (e.code === 'auth/admin-restricted-operation') {
+                    if(msg) msg.innerText = "Restricted: Admin approval required.";
+                } else if (e.code === 'auth/popup-closed-by-user') {
+                    if(msg) msg.innerText = "";
+                } else {
+                    if(msg) msg.innerText = "Error: " + (e.message || "Login failed");
+                }
+            }
+        };
+        window.handleEmailLogin = async function() {
+            const email = document.getElementById('email').value;
+            const pass = document.getElementById('pass').value;
+            const msg = document.getElementById('login-msg');
+            if(msg) msg.innerText = "Authenticating...";
+            try {
+                await auth.signInWithEmailAndPassword(email, pass);
+            } catch (e) {
+                if(msg) msg.innerText = "Error: Invalid credentials";
+            }
+        };
+        window.handleLogout = async function() {
+            try {
+                await auth.signOut();
+            } catch (e) {
+                console.error(e);
+            }
+        };
 
-    if (email.endsWith('@admin.com')) {
-      role = 'ADMIN';
-    } else if (email.endsWith('@wh.com')) {
-      role = 'WH';
-    } 
-    
-    else {
-      const emailKey = email.replace(/\./g, '_');
-      try {
-        const snap = await db.ref(`authorized_users/${emailKey}`).once('value');
-        role = snap.val();
-      } catch (e) {
-        console.error("Database read error:", e);
-      }
+    } catch(e) {
+        console.error("Firebase init error", e);
     }
-
-    if (role) {
-      document.getElementById('login').classList.add('hide');
-      document.getElementById('app').classList.remove('hide');
-      document.getElementById('userline').innerText = `${role.toUpperCase()}: ${u.email}`;
-      document.getElementById('login-msg').innerText = "";
-    } else {
-      alert("Access Denied: Unauthorized user.");
-      await auth.signOut();
-      document.getElementById('login-msg').innerText = "";
-    }
-
-  } else {
-    document.getElementById('login').classList.remove('hide');
-    document.getElementById('app').classList.add('hide');
-    
-    const msg = document.getElementById('login-msg');
-    if(msg) msg.innerText = "";
-  }
-});
+})(); 
 </script>
 
 </body>
