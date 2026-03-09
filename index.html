@@ -1646,24 +1646,42 @@ _initOffInventory(carrierInvMap);
       auth = firebase.auth();
       db = firebase.database();
 
-      auth.onAuthStateChanged(u=>{
-        if(u){
-          currentUser = u;
-          document.getElementById('login').classList.add('hide');
-          document.getElementById('app').classList.remove('hide');
-          document.getElementById('userline').innerText = `User: ${u.email || '-'}`;
-        }else{
-          currentUser = null;
-          document.getElementById('login').classList.remove('hide');
-          document.getElementById('app').classList.add('hide');
-        }
-      });
+      auth.onAuthStateChanged(async (u) => {
+  if (u) {
+    currentUser = u;
+    const email = u.email.toLowerCase();
+    let role = null;
 
-    }catch(e){
-      console.error(e);
-      document.getElementById('login-msg').innerText = 'Failed to initialize Firebase (open via http://localhost and make sure the CDN is reachable).';
+    if (email.endsWith('@admin.com')) {
+      role = 'ADMIN';
+    } else if (email.endsWith('@wh.com')) {
+      role = 'WH';
+    } 
+    
+    else {
+      const emailKey = email.replace(/\./g, '_');
+      try {
+        const snap = await db.ref(`authorized_users/${emailKey}`).once('value');
+        role = snap.val();
+      } catch (e) {
+        console.error("Database read error:", e);
+      }
     }
-  })();
+
+    if (role) {
+      document.getElementById('login').classList.add('hide');
+      document.getElementById('app').classList.remove('hide');
+      document.getElementById('userline').innerText = `${role.toUpperCase()}: ${u.email}`;
+    } else {
+      alert("Access Denied: Unauthorized user.");
+      await auth.signOut();
+    }
+
+  } else {
+    document.getElementById('login').classList.remove('hide');
+    document.getElementById('app').classList.add('hide');
+  }
+});
 </script>
 
 </body>
