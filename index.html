@@ -598,23 +598,33 @@ function _dtKey(dc, tm){
     }
   }
   window.handleLogin = handleLogin;
-
+///////////////////
   async function handleGoogleLogin() {
-    const msg = document.getElementById('login-msg'); 
+    const msg = document.getElementById('login-msg');
     msg.innerText = "Connecting to Google...";
+    
     try {
-      if(!auth) throw new Error('Firebase not ready');
+      if(!auth) throw new Error('Firebase not ready!');
       const provider = new firebase.auth.GoogleAuthProvider();
       
       await auth.signInWithPopup(provider);
       
     } catch (e) {
       console.error(e);
-      msg.innerText = "Google Error: " + (e && e.message ? e.message : e);
+      
+      if (e.code === 'auth/admin-restricted-operation') {
+        msg.innerText = "Restricted access: This account doesn't have admin permissions.";
+      } else if (e.code === 'auth/popup-closed-by-user') {
+        msg.innerText = "Authentication failed. (Close window)";
+      } else if (e.code === 'auth/unauthorized-domain') {
+        msg.innerText = "Error: This domain is not authorized in Firebase.";
+      } else {
+        msg.innerText = "Google Login Error: Something went wrong. " + (e.message || "Please try again.");
+      }
     }
   }
   window.handleGoogleLogin = handleGoogleLogin;
-
+///////////////////
   function _kpi(title, value, hint){
     return `<div class="kpi"><div class="t">${title}</div><div class="v">${value}</div><div class="t" style="margin-top:6px;">${hint||""}</div></div>`;
   }
