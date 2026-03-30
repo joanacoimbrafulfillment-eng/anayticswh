@@ -562,24 +562,31 @@ function _dtKey(dc, tm){
   }
 
 
-  function _dateListInclusive(startISO, endISO){
-    const out=[];
-    const s=new Date(startISO+"T00:00:00");
-    const e=new Date(endISO+"T00:00:00");
-    if(Number.isNaN(s.getTime())||Number.isNaN(e.getTime())) return out;
-    for(let d=new Date(s); d<=e; d.setDate(d.getDate()+1)){
-      out.push(d.toISOString().slice(0,10));
-    }
-    return out;
+ function _dateListInclusive(startISO, endISO){
+  const out = [];
+  const startParts = startISO.split('-').map(Number);
+  const endParts = endISO.split('-').map(Number);
+  const startDate = new Date(startParts[0], startParts[1] - 1, startParts[2]);
+  const endDate = new Date(endParts[0], endParts[1] - 1, endParts[2]);
+  if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) return out;
+  const current = new Date(startDate);
+  while (current <= endDate) {
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    out.push(`${year}-${month}-${day}`);
+    current.setDate(current.getDate() + 1);
   }
+  return out;
+}
 
-  function showTab(key){
-    document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
-    ['perf','pick','sold','ret','ratio','carriers','opprods','oprets','daycar','offinv','export'].forEach(k=>{
-      document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
-    });
-  }
-  window.showTab = showTab;
+function showTab(key){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
+  ['perf','pick','sold','ret','ratio','carriers','opprods','oprets','daycar','offinv','export'].forEach(k=>{
+    document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
+  });
+}
+window.showTab = showTab;
 
   function _setStatus(s){ document.getElementById('status').innerText = s || ""; }
 
@@ -598,6 +605,7 @@ function _dtKey(dc, tm){
     }
   }
   window.handleLogin = handleLogin;
+  
 ///////////////////
   async function handleGoogleLogin() {
     const msg = document.getElementById('login-msg');
@@ -624,6 +632,7 @@ function _dtKey(dc, tm){
     }
   }
   window.handleGoogleLogin = handleGoogleLogin;
+  
 ///////////////////
   function _kpi(title, value, hint){
     return `<div class="kpi"><div class="t">${title}</div><div class="v">${value}</div><div class="t" style="margin-top:6px;">${hint||""}</div></div>`;
