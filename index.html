@@ -1211,202 +1211,244 @@ function _renderTopTable(tbodySel, rows){
     });
     ratioRows.sort((a,b)=> (b.rate - a.rate) || (b.returns - a.returns) || (b.sold - a.sold));
 
-    // carriers / printed IDs (from active_batches)
-    _setStatus('Loading batches (active_batches)…');
-    let carrierRows = [];
-    let pickRows = [];
-    try{
-      const daySet = new Set(days);
-      const bSnap = await db.ref('active_batches').once('value');
-      const bObj = bSnap.val() || {};
+   _setStatus('Loading batches (active_batches)…');
+let carrierRows = [];
+let pickRows = [];
+try{
+  const daySet = new Set(days);
+  const bSnap = await db.ref('active_batches').once('value');
+  const bObj = bSnap.val() || {};
 
-      // picking by operator (from active_batches)
-      const pickMap = {}; // user -> {pickedBatches,pickedIds,pickedProducts}
-      Object.values(bObj).filter(Boolean).forEach(b=>{
-        const dc = b.dateClean || '';
-        if(!daySet.has(dc)) return;
-        const u = _u(b.picked_by || b.pickedBy || b.picked_by_user || b.pickedByUser || '');
-        if(!u) return;
+  const pickMap = {};
+  Object.values(bObj).filter(Boolean).forEach(b=>{
+    const dc = b.dateClean || '';
+    if(!daySet.has(dc)) return;
+    const u = _u(b.picked_by || b.pickedBy || b.picked_by_user || b.pickedByUser || '');
+    if(!u) return;
 
-        if(!pickMap[u]) pickMap[u] = {user:u, pickedBatches:0, pickedIds:0, pickedProducts:0};
-        pickMap[u].pickedBatches += 1;
+    if(!pickMap[u]) pickMap[u] = {user:u, pickedBatches:0, pickedIds:0, pickedProducts:0};
+    pickMap[u].pickedBatches += 1;
 
-        // IDs: expected minus cancelled
-        pickMap[u].pickedIds += _requiredBatchIds(b).length;
-
-        // Products: sum inventory qty, ignoring warranty ES/PT
-        const inv = b.inventory || {};
-        for(const sku in inv){
-          if(!sku) continue;
-          if(_ignoreOffSku(sku)) continue; // ignore WARRANTY ES/PT
-          const q = Number((inv[sku]||{}).q || 0);
-          if(!isNaN(q)) pickMap[u].pickedProducts += q;
-        }
-      });
-      pickRows = Object.values(pickMap).sort((a,b)=> (b.pickedIds-a.pickedIds) || (b.pickedProducts-a.pickedProducts));
-
-      // day -> carrier -> {collectedIds, collectedItems, prodMap}
-      const dayCarrierProdMap = {};
-      Object.values(bObj).filter(Boolean).forEach(b=>{
-        const dc = b.dateClean || '';
-        if(!daySet.has(dc)) return;
-
-        const carrier = _carrierName(b);
-        const ids = _requiredBatchIds(b);
-
-        if(!dayCarrierProdMap[dc]) dayCarrierProdMap[dc] = {};
-        if(!dayCarrierProdMap[dc][carrier]) dayCarrierProdMap[dc][carrier] = {collectedIds:0, collectedItems:0, prodMap:{}};
-
-        const bucket = dayCarrierProdMap[dc][carrier];
-        ids.forEach(id=>{
-          const key = String(id).trim();
-          if(!key) return;
-          bucket.collectedIds += 1;
-          const prods = packedById[key] || [];
-          bucket.collectedItems += prods.length;
-          prods.forEach(p=>{
-            bucket.prodMap[p] = (bucket.prodMap[p] || 0) + 1;
-          });
-        });
-      });
-
-      // init UI (default: first day in range)
-      _initDayCarrier(days, dayCarrierProdMap);
-      // OFF (OFFICE) inventory pasted at batch creation: aggregate SKU quantities by carrier
-
-      function _ignoreOffSku(rawSku){
-        const s0 = String(rawSku||'').trim();
-        if(!s0) return true;
-        const up = s0.toUpperCase();
-        // Normalize: keep only letters/numbers and spaces
-        const norm = up.replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
-        const compact = norm.replace(/\s+/g,'');
-
-        // Match common variants: "warranty es", "WARRANTY_ES", "warranty-pt", etc.
-        if(/\bWARRANTY\b\s*\bES\b/.test(norm)) return true;
-        if(/\bWARRANTY\b\s*\bPT\b/.test(norm)) return true;
-        if(compact === 'WARRANTYES') return true;
-        if(compact === 'WARRANTYPT') return true;
-        return false;
-      }
-      const carrierInvMap = {}; // carrier -> {batches,totalQty,skuMap}
-      Object.values(bObj).filter(Boolean).forEach(b=>{
-        const dc = b.dateClean || '';
-        if(!daySet.has(dc)) return;
-
-        const carrier = _carrierName(b);
-        if(!carrierInvMap[carrier]) carrierInvMap[carrier] = {carrier, batches:0, totalQty:0, skuMap:{}};
-        const bucket = carrierInvMap[carrier];
-        bucket.batches += 1;
-
-        const inv = b.inventory || {};
-        Object.keys(inv).forEach(sku=>{
-          const key = String(sku||'').trim().toUpperCase();
-          const keyNorm = key.replace(/\s+/g,' ').trim();
-          if(!keyNorm) return;
-          if(_ignoreOffSku(sku)) return;
-          const qRaw = (inv[sku] && typeof inv[sku]==='object') ? inv[sku].q : inv[sku];
-          const q = parseInt(qRaw, 10);
-          if(!Number.isFinite(q) || q<=0) return;
-          bucket.skuMap[key] = (bucket.skuMap[key]||0) + q;
-          bucket.totalQty += q;
-        });
-      });
-
-      
-
-      // OFF inventory totals for KPI cards
-      try{
-        const _allCarriers = Object.keys(carrierInvMap||{});
-        let _items = 0;
-        const _skuSet = new Set();
-        _allCarriers.forEach(cc=>{
-          const o = carrierInvMap[cc] || {totalQty:0, skuMap:{}};
-          _items += (o.totalQty||0);
-          Object.keys(o.skuMap||{}).forEach(sku=> _skuSet.add(String(sku)));
-        });
-        totals.offInvItems = _items;
-        totals.offInvSkus = _skuSet.size;
-      }catch(_e){ totals.offInvItems = 0; totals.offInvSkus = 0; }
-_initOffInventory(carrierInvMap);
-
-      const byC = {}; // carrier -> {country, printedIds,cancelledIds,batches, printedPct (within country), countrySharePct (of total)}
-
-      Object.values(bObj).filter(Boolean).forEach(b=>{
-        const dc = b.dateClean || '';
-        if(!daySet.has(dc)) return;
-
-        const carrier = _carrierName(b);
-        const country = _carrierCountry(carrier);
-        const cancelledN = (b && b.cancelled_ids) ? Object.keys(b.cancelled_ids).length : 0;
-        const printedN = _requiredBatchIds(b).length; // expected minus cancelled
-
-        if(!byC[carrier]) byC[carrier] = {carrier, country, printedIds:0, cancelledIds:0, batches:0, printedPct:0, countrySharePct:0};
-        byC[carrier].printedIds += printedN;
-        byC[carrier].cancelledIds += cancelledN;
-        byC[carrier].batches += 1;
-      });
-
-      carrierRows = Object.values(byC);
-      const totalPrinted = carrierRows.reduce((a,r)=>a + (r.printedIds||0), 0);
-
-      const totalPrintedPT = carrierRows.filter(r=>r.country==='PT').reduce((a,r)=>a + (r.printedIds||0), 0);
-      const totalPrintedES = carrierRows.filter(r=>r.country==='ES').reduce((a,r)=>a + (r.printedIds||0), 0);
-      const totalPrintedOther = totalPrinted - totalPrintedPT - totalPrintedES;
-
-      carrierRows.forEach(r=>{
-        const denom = r.country==='PT' ? totalPrintedPT : (r.country==='ES' ? totalPrintedES : totalPrintedOther || totalPrinted);
-        r.printedPct = denom ? (r.printedIds/denom) : 0; // % within country group
-        r.countrySharePct = totalPrinted ? (r.printedIds/totalPrinted) : 0; // % of total
-      });
-
-      // store country shares in totals (for KPIs)
-      totals.ptPrintedPct = totalPrinted ? (totalPrintedPT/totalPrinted) : 0;
-      totals.esPrintedPct = totalPrinted ? (totalPrintedES/totalPrinted) : 0;
-
-
-      carrierRows.sort((a,b)=> (b.printedIds - a.printedIds) || a.carrier.localeCompare(b.carrier));
-
-      totals.printedIds = totalPrinted;
-      totals.cancelledIds = carrierRows.reduce((a,r)=>a + (r.cancelledIds||0), 0);
-    }catch(e){
-      console.warn('Carrier analysis failed:', e);
+    let expectedIds = [];
+    if(b.expected_ids && Array.isArray(b.expected_ids)) {
+      expectedIds = b.expected_ids;
+    } else if(b.expected_ids && typeof b.expected_ids === 'object') {
+      expectedIds = Object.values(b.expected_ids);
     }
+    
+    let cancelledIds = [];
+    if(b.cancelled_ids) {
+      if(Array.isArray(b.cancelled_ids)) {
+        cancelledIds = b.cancelled_ids;
+      } else if(typeof b.cancelled_ids === 'object') {
+        cancelledIds = Object.keys(b.cancelled_ids);
+      }
+    }
+    
+    const cancelledSet = new Set(cancelledIds);
+    const requiredIds = expectedIds.filter(id => !cancelledSet.has(id));
+    pickMap[u].pickedIds += requiredIds.length;
 
-    // render
-    _renderKPIs(totals);
-    _renderPerfRows(perfRows);
-    _renderPickRows(pickRows);
-    _renderTopTable('#tbl-sold tbody', soldRows.slice(0,50));
-    _renderTopTable('#tbl-ret tbody', retRows);
-    _renderRatio(ratioRows.slice(0,100));
-    _renderCarriers(carrierRows);
+    const inv = b.inventory || {};
+    for(const sku in inv){
+      if(!sku) continue;
+      if(_ignoreOffSku(sku)) continue;
+      const q = Number((inv[sku] && typeof inv[sku]==='object') ? inv[sku].q : inv[sku]);
+      if(!isNaN(q) && q > 0) pickMap[u].pickedProducts += q;
+    }
+  });
+  pickRows = Object.values(pickMap).sort((a,b)=> (b.pickedIds-a.pickedIds) || (b.pickedProducts-a.pickedProducts));
 
-    // charts
-    _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, carrierRows});
+  const dayCarrierProdMap = {};
+  Object.values(bObj).filter(Boolean).forEach(b=>{
+    const dc = b.dateClean || '';
+    if(!daySet.has(dc)) return;
 
-    // cache export
-    __last = {
-      range:{start:s,end:e},
-      perfRows,
-      pickRows,
-      soldRows,
-      retRows,
-      ratioRows,
-      carrierRows,
-      opProductsMap: packedUserProdMap,
-      opReturnsProductsMap: returnsUserProdMap,
-      opReturnsIdsMap: returnsUserIdMap,
-      dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
-      offInvMap: (window.__offInvMap || {}),
-      totals
-    };
+    const carrier = _carrierName(b);
+    
+    let expectedIds = [];
+    if(b.expected_ids && Array.isArray(b.expected_ids)) {
+      expectedIds = b.expected_ids;
+    } else if(b.expected_ids && typeof b.expected_ids === 'object') {
+      expectedIds = Object.values(b.expected_ids);
+    }
+    
+    let cancelledIds = [];
+    if(b.cancelled_ids) {
+      if(Array.isArray(b.cancelled_ids)) {
+        cancelledIds = b.cancelled_ids;
+      } else if(typeof b.cancelled_ids === 'object') {
+        cancelledIds = Object.keys(b.cancelled_ids);
+      }
+    }
+    
+    const cancelledSet = new Set(cancelledIds);
+    const ids = expectedIds.filter(id => !cancelledSet.has(id));
 
-    _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS`);
+    if(!dayCarrierProdMap[dc]) dayCarrierProdMap[dc] = {};
+    if(!dayCarrierProdMap[dc][carrier]) dayCarrierProdMap[dc][carrier] = {collectedIds:0, collectedItems:0, prodMap:{}};
+
+    const bucket = dayCarrierProdMap[dc][carrier];
+    ids.forEach(id=>{
+      const key = String(id).trim();
+      if(!key) return;
+      bucket.collectedIds += 1;
+      const prods = packedById[key] || [];
+      bucket.collectedItems += prods.length;
+      prods.forEach(p=>{
+        bucket.prodMap[p] = (bucket.prodMap[p] || 0) + 1;
+      });
+    });
+  });
+
+  _initDayCarrier(days, dayCarrierProdMap);
+
+  function _ignoreOffSku(rawSku){
+    const s0 = String(rawSku||'').trim();
+    if(!s0) return true;
+    const up = s0.toUpperCase();
+    const norm = up.replace(/[^A-Z0-9 ]+/g,' ').replace(/\s+/g,' ').trim();
+    const compact = norm.replace(/\s+/g,'');
+    if(/\bWARRANTY\b\s*\bES\b/.test(norm)) return true;
+    if(/\bWARRANTY\b\s*\bPT\b/.test(norm)) return true;
+    if(compact === 'WARRANTYES') return true;
+    if(compact === 'WARRANTYPT') return true;
+    return false;
   }
+  
+  const carrierInvMap = {};
+  Object.values(bObj).filter(Boolean).forEach(b=>{
+    const dc = b.dateClean || '';
+    if(!daySet.has(dc)) return;
+
+    const carrier = _carrierName(b);
+    if(!carrierInvMap[carrier]) carrierInvMap[carrier] = {carrier, batches:0, totalQty:0, skuMap:{}};
+    const bucket = carrierInvMap[carrier];
+    bucket.batches += 1;
+
+    const inv = b.inventory || {};
+    Object.keys(inv).forEach(sku=>{
+      const key = String(sku||'').trim().toUpperCase();
+      const keyNorm = key.replace(/\s+/g,' ').trim();
+      if(!keyNorm) return;
+      if(_ignoreOffSku(sku)) return;
+      const qRaw = (inv[sku] && typeof inv[sku]==='object') ? inv[sku].q : inv[sku];
+      const q = parseInt(qRaw, 10);
+      if(!Number.isFinite(q) || q<=0) return;
+      bucket.skuMap[key] = (bucket.skuMap[key]||0) + q;
+      bucket.totalQty += q;
+    });
+  });
+
+  try{
+    const _allCarriers = Object.keys(carrierInvMap||{});
+    let _items = 0;
+    const _skuSet = new Set();
+    _allCarriers.forEach(cc=>{
+      const o = carrierInvMap[cc] || {totalQty:0, skuMap:{}};
+      _items += (o.totalQty||0);
+      Object.keys(o.skuMap||{}).forEach(sku=> _skuSet.add(String(sku)));
+    });
+    totals.offInvItems = _items;
+    totals.offInvSkus = _skuSet.size;
+  }catch(_e){ totals.offInvItems = 0; totals.offInvSkus = 0; }
+  
+  _initOffInventory(carrierInvMap);
+
+  const byC = {};
+  Object.values(bObj).filter(Boolean).forEach(b=>{
+    const dc = b.dateClean || '';
+    if(!daySet.has(dc)) return;
+
+    const carrier = _carrierName(b);
+    const country = _carrierCountry(carrier);
+    
+    let expectedIds = [];
+    if(b.expected_ids && Array.isArray(b.expected_ids)) {
+      expectedIds = b.expected_ids;
+    } else if(b.expected_ids && typeof b.expected_ids === 'object') {
+      expectedIds = Object.values(b.expected_ids);
+    }
+    
+    let cancelledIds = [];
+    if(b.cancelled_ids) {
+      if(Array.isArray(b.cancelled_ids)) {
+        cancelledIds = b.cancelled_ids;
+      } else if(typeof b.cancelled_ids === 'object') {
+        cancelledIds = Object.keys(b.cancelled_ids);
+      }
+    }
+    
+    const cancelledSet = new Set(cancelledIds);
+    const printedN = expectedIds.filter(id => !cancelledSet.has(id)).length;
+    const cancelledN = cancelledSet.size;
+
+    if(!byC[carrier]) byC[carrier] = {carrier, country, printedIds:0, cancelledIds:0, batches:0, printedPct:0, countrySharePct:0};
+    byC[carrier].printedIds += printedN;
+    byC[carrier].cancelledIds += cancelledN;
+    byC[carrier].batches += 1;
+  });
+
+  carrierRows = Object.values(byC);
+  const totalPrinted = carrierRows.reduce((a,r)=>a + (r.printedIds||0), 0);
+  const totalPrintedPT = carrierRows.filter(r=>r.country==='PT').reduce((a,r)=>a + (r.printedIds||0), 0);
+  const totalPrintedES = carrierRows.filter(r=>r.country==='ES').reduce((a,r)=>a + (r.printedIds||0), 0);
+  const totalPrintedOther = totalPrinted - totalPrintedPT - totalPrintedES;
+
+  carrierRows.forEach(r=>{
+    const denom = r.country==='PT' ? totalPrintedPT : (r.country==='ES' ? totalPrintedES : totalPrintedOther || totalPrinted);
+    r.printedPct = denom ? (r.printedIds/denom) : 0;
+    r.countrySharePct = totalPrinted ? (r.printedIds/totalPrinted) : 0;
+  });
+
+  totals.ptPrintedPct = totalPrinted ? (totalPrintedPT/totalPrinted) : 0;
+  totals.esPrintedPct = totalPrinted ? (totalPrintedES/totalPrinted) : 0;
+  totals.printedIds = totalPrinted;
+  totals.cancelledIds = carrierRows.reduce((a,r)=>a + (r.cancelledIds||0), 0);
+  
+  carrierRows.sort((a,b)=> (b.printedIds - a.printedIds) || a.carrier.localeCompare(b.carrier));
+  
+}catch(e){
+  console.warn('Carrier analysis failed:', e);
+  carrierRows = [];
+  pickRows = [];
+  totals.printedIds = 0;
+  totals.cancelledIds = 0;
+  totals.ptPrintedPct = 0;
+  totals.esPrintedPct = 0;
+  totals.offInvItems = 0;
+  totals.offInvSkus = 0;
+}
+
+_renderKPIs(totals);
+_renderPerfRows(perfRows);
+_renderPickRows(pickRows);
+_renderTopTable('#tbl-sold tbody', soldRows.slice(0,50));
+_renderTopTable('#tbl-ret tbody', retRows);
+_renderRatio(ratioRows.slice(0,100));
+_renderCarriers(carrierRows);
+
+_renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, carrierRows});
+
+__last = {
+  range:{start:s,end:e},
+  perfRows,
+  pickRows,
+  soldRows,
+  retRows,
+  ratioRows,
+  carrierRows,
+  opProductsMap: packedUserProdMap,
+  opReturnsProductsMap: returnsUserProdMap,
+  opReturnsIdsMap: returnsUserIdMap,
+  dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
+  offInvMap: (window.__offInvMap || {}),
+  totals
+};
+
   window.runAnalytics = runAnalytics;
 
-  
+_setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS`);
 
   // ---------- Charts (Chart.js) ----------
   const __charts = {trend:null, opsIds:null, opsItems:null, retOpsIds:null, retOpsItems:null, sold:null, ret:null, ratio:null, carrierPrinted:null, opRetProds:null, opRetIds:null};
