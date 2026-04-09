@@ -1010,6 +1010,54 @@ function _renderTopTable(tbodySel, rows){
     return {regList, ppList};
   }
 
+  let __deletedBatchesReadable = true;
+
+  async function _loadBatchesForOneDay(dateClean){
+    const merged = {};
+
+    try{
+      const activeSnap = await db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
+      const activeObj = activeSnap.val() || {};
+      Object.entries(activeObj).forEach(([k,v])=>{
+        if(v) merged[k] = v;
+      });
+    }catch(e){
+      console.warn('active_batches read failed for', dateClean, e);
+    }
+
+    try{
+      const deletedSnap = await db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
+      const deletedObj = deletedSnap.val() || {};
+      Object.entries(deletedObj).forEach(([k,v])=>{
+        if(!v) return;
+        if(merged[k]){
+          merged['deleted__' + k] = v;
+        }else{
+          merged[k] = v;
+        }
+      });
+      __deletedBatchesReadable = true;
+    }catch(e){
+      __deletedBatchesReadable = false;
+      console.warn('deleted_batches read failed for', dateClean, e);
+    }
+
+    return merged;
+  }
+
+  async function _loadBatchesRange(dateList){
+    const out = {};
+    for(let i=0;i<dateList.length;i++){
+      const dc = dateList[i];
+      _setStatus(`Loading batches ${i+1}/${dateList.length} (${dc})…`);
+      const dayObj = await _loadBatchesForOneDay(dc);
+      Object.entries(dayObj).forEach(([k,v])=>{
+        out[k] = v;
+      });
+    }
+    return out;
+  }
+
   async function runAnalytics(){
     const s = document.getElementById('start').value;
     const e = document.getElementById('end').value;
@@ -1220,31 +1268,12 @@ function _renderTopTable(tbodySel, rows){
     });
     ratioRows.sort((a,b)=> (b.rate - a.rate) || (b.returns - a.returns) || (b.sold - a.sold));
 
-   _setStatus('Loading batches (active_batches + deleted_batches)…');
+   _setStatus('Loading batches by date…');
 let carrierRows = [];
 let pickRows = [];
 try{
   const daySet = new Set(days);
-
-  // Read both active and archived batches so historical dates keep working
-  let bObj = {};
-  let archivedReadable = true;
-  const [activeSnap, deletedSnapResult] = await Promise.all([
-    db.ref('active_batches').once('value'),
-    db.ref('deleted_batches').once('value').catch(err => ({ __error: err }))
-  ]);
-
-  const activeObj = activeSnap.val() || {};
-  let deletedObj = {};
-  if(deletedSnapResult && deletedSnapResult.__error){
-    archivedReadable = false;
-    console.warn('deleted_batches not readable for this user:', deletedSnapResult.__error);
-  } else {
-    deletedObj = (deletedSnapResult && typeof deletedSnapResult.val === 'function') ? (deletedSnapResult.val() || {}) : {};
-  }
-
-  // Merge active + archived. Keep active version if same batch key exists in both.
-  bObj = {...deletedObj, ...activeObj};
+  const bObj = await _loadBatchesRange(days);
 
   const pickMap = {};
   Object.values(bObj).filter(Boolean).forEach(b=>{
@@ -1473,7 +1502,8 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     totals
   };
 
-  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${(typeof archivedReadable !== 'undefined' && !archivedReadable) ? ' • archived batches unavailable for this login' : ''}`);
+  const archivedNote = __deletedBatchesReadable ? ' • archived ON' : ' • archived unavailable';
+  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${archivedNote}`);
 } 
 
 window.runAnalytics = runAnalytics;
