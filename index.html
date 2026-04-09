@@ -1220,13 +1220,31 @@ function _renderTopTable(tbodySel, rows){
     });
     ratioRows.sort((a,b)=> (b.rate - a.rate) || (b.returns - a.returns) || (b.sold - a.sold));
 
-   _setStatus('Loading batches (active_batches)…');
+   _setStatus('Loading batches (active_batches + deleted_batches)…');
 let carrierRows = [];
 let pickRows = [];
 try{
   const daySet = new Set(days);
-  const bSnap = await db.ref('active_batches').once('value');
-  const bObj = bSnap.val() || {};
+
+  // Read both active and archived batches so historical dates keep working
+  let bObj = {};
+  let archivedReadable = true;
+  const [activeSnap, deletedSnapResult] = await Promise.all([
+    db.ref('active_batches').once('value'),
+    db.ref('deleted_batches').once('value').catch(err => ({ __error: err }))
+  ]);
+
+  const activeObj = activeSnap.val() || {};
+  let deletedObj = {};
+  if(deletedSnapResult && deletedSnapResult.__error){
+    archivedReadable = false;
+    console.warn('deleted_batches not readable for this user:', deletedSnapResult.__error);
+  } else {
+    deletedObj = (deletedSnapResult && typeof deletedSnapResult.val === 'function') ? (deletedSnapResult.val() || {}) : {};
+  }
+
+  // Merge active + archived. Keep active version if same batch key exists in both.
+  bObj = {...deletedObj, ...activeObj};
 
   const pickMap = {};
   Object.values(bObj).filter(Boolean).forEach(b=>{
@@ -1455,7 +1473,7 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     totals
   };
 
-  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS`);
+  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${(typeof archivedReadable !== 'undefined' && !archivedReadable) ? ' • archived batches unavailable for this login' : ''}`);
 } 
 
 window.runAnalytics = runAnalytics;
