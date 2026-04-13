@@ -124,8 +124,17 @@
       </div>
       <div>
         <label>&nbsp;</label>
-        <button class="btn" onclick="runAnalytics()">RUN ANALYSIS</button>
+        <button class="btn" onclick="runAnalytics()">▶ RUN ANALYSIS</button>
       </div>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+      <span style="font-size:12px; color:var(--muted); font-weight:700; align-self:center;">Quick:</span>
+      <button class="btn secondary" style="font-size:12px; padding:6px 12px;" onclick="setDateRange('today')">Today</button>
+      <button class="btn secondary" style="font-size:12px; padding:6px 12px;" onclick="setDateRange('yesterday')">Yesterday</button>
+      <button class="btn secondary" style="font-size:12px; padding:6px 12px;" onclick="setDateRange('week')">This week</button>
+      <button class="btn secondary" style="font-size:12px; padding:6px 12px;" onclick="setDateRange('lastweek')">Last week</button>
+      <button class="btn secondary" style="font-size:12px; padding:6px 12px;" onclick="setDateRange('month')">This month</button>
+      <button class="btn secondary" style="font-size:12px; padding:6px 12px;" onclick="setDateRange('lastmonth')">Last month</button>
     </div>
 
     <div class="tabs">
@@ -219,6 +228,9 @@
   <div id="tab-sold" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">🔥 Top-selling products (PACKING)</h3>
     <div style="height:320px; margin-top:8px;"><canvas id="chart-sold"></canvas></div>
+    <div style="margin:10px 0 6px 0;">
+      <input type="text" id="search-sold" placeholder="🔍 Filter product…" oninput="filterTable('tbl-sold', this.value)" style="max-width:320px; padding:8px 12px; font-size:13px;" />
+    </div>
     <div class="scroll">
       <table id="tbl-sold">
         <thead><tr><th>#</th><th>Produto</th><th>Qtd</th></tr></thead>
@@ -230,6 +242,9 @@
   <div id="tab-ret" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">↩️ Returned products (RETURN/RETURNS)</h3>
     <div style="height:320px; margin-top:8px;"><canvas id="chart-ret"></canvas></div>
+    <div style="margin:10px 0 6px 0;">
+      <input type="text" id="search-ret" placeholder="🔍 Filter product…" oninput="filterTable('tbl-ret', this.value)" style="max-width:320px; padding:8px 12px; font-size:13px;" />
+    </div>
     <div class="scroll">
       <table id="tbl-ret">
         <thead><tr><th>#</th><th>Produto</th><th>Qtd</th></tr></thead>
@@ -242,6 +257,9 @@
     <h3 style="margin:0 0 10px 0;">📉 Return rate by product</h3>
     <div style="height:320px; margin-top:8px;"><canvas id="chart-ratio"></canvas></div>
     <p class="muted" style="margin-top:0;">Rate = returns / sold (within the range). Only products with at least 10 sales are shown.</p>
+    <div style="margin:10px 0 6px 0;">
+      <input type="text" id="search-ratio" placeholder="🔍 Filter product…" oninput="filterTable('tbl-ratio', this.value)" style="max-width:320px; padding:8px 12px; font-size:13px;" />
+    </div>
     <div class="scroll">
       <table id="tbl-ratio">
         <thead><tr><th>#</th><th>Produto</th><th>Vendidos</th><th>Returns</th><th>Taxa</th></tr></thead>
@@ -254,11 +272,21 @@
 
   <div id="tab-carriers" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">🚚 Carrier analysis (Printed IDs)</h3>
+
+    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px;">
+      <span style="font-size:13px; color:var(--muted); font-weight:700;">View by:</span>
+      <button class="btn" id="btn-carrier-bycountry" onclick="setCarrierView('country')" style="font-size:12px; padding:7px 14px;">🌍 Country</button>
+      <button class="btn secondary" id="btn-carrier-byfamily" onclick="setCarrierView('family')" style="font-size:12px; padding:7px 14px;">🚚 Carrier family</button>
+      <span class="muted" id="carrier-view-hint" style="font-size:12px; margin-left:4px;"></span>
+    </div>
+
     <div style="height:320px; margin-top:8px;"><canvas id="chart-carrier-printed"></canvas></div>
-    <p class="muted" style="margin-top:0;">Printed IDs are calculated from <code>active_batches</code> as the number of required IDs (expected IDs minus cancelled IDs) within the selected date range, grouped by carrier. Percentages are shown within each country group (PT vs ES) + the carrier share of the overall total.</p>
+    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from <code>active_batches</code> (expected minus cancelled). <b>Country view</b>: % within each country (PT vs ES). <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, etc.</p>
     <div class="scroll">
       <table id="tbl-carriers">
-        <thead><tr><th>Country</th><th>Carrier</th><th>Printed IDs</th><th>Cancelled IDs</th><th>Printed % (country)</th><th>Country % (total)</th><th>Batches</th></tr></thead>
+        <thead id="tbl-carriers-head">
+          <tr><th>Country</th><th>Carrier</th><th>Printed IDs</th><th>Cancelled IDs</th><th>Printed % (country)</th><th>% of total</th><th>Batches</th></tr>
+        </thead>
         <tbody></tbody>
       </table>
     </div>
@@ -426,10 +454,11 @@
     <h3 style="margin:0 0 10px 0;">📁 Export</h3>
     <div class="grid grid-2">
       <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
-        <b>Export (CSV)</b>
+        <b>Export individual (CSV)</b>
         <p class="muted" style="margin:8px 0 12px 0;">Export tables (performance + top lists) to CSV.</p>
         <div style="display:flex; gap:10px; flex-wrap:wrap;">
           <button class="btn secondary" onclick="exportCSV('performance')">Performance</button>
+          <button class="btn secondary" onclick="exportCSV('picking')">Picking</button>
           <button class="btn secondary" onclick="exportCSV('sold')">Top sold</button>
           <button class="btn secondary" onclick="exportCSV('returns')">Returns (all)</button>
           <button class="btn secondary" onclick="exportCSV('ratio')">Return rate</button>
@@ -437,8 +466,13 @@
           <button class="btn secondary" onclick="exportCSV('opproducts')">Products by operator</button>
           <button class="btn secondary" onclick="exportCSV('opreturns_products')">Returns by operator (products)</button>
           <button class="btn secondary" onclick="exportCSV('opreturns_ids')">Returns by operator (IDs)</button>
-          <button class="btn secondary" onclick="exportCSV('daycarrier')">Products by day & carrier</button>
+          <button class="btn secondary" onclick="exportCSV('daycarrier')">Products by day &amp; carrier</button>
           <button class="btn secondary" onclick="exportCSV('offinv')">OFF batches (SKU/QTY)</button>
+        </div>
+        <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(255,255,255,.08);">
+          <b style="font-size:13px;">Export tudo de uma vez</b>
+          <p class="muted" style="margin:6px 0 10px 0; font-size:12px;">Gera todos os CSVs automaticamente (um download por tabela).</p>
+          <button class="btn" onclick="exportAll()" style="background:rgba(53,208,127,.18); border-color:rgba(53,208,127,.45);">⬇ Export All CSVs</button>
         </div>
       </div>
       <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
@@ -492,6 +526,63 @@
   };
 
   function _nowISO(){ return new Date().toISOString().slice(0,10); }
+
+  // -------- Date shortcuts --------
+  function setDateRange(range){
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const iso = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+    let s, e;
+    if(range === 'today'){
+      s = e = iso(now);
+    } else if(range === 'yesterday'){
+      const y = new Date(now); y.setDate(y.getDate()-1);
+      s = e = iso(y);
+    } else if(range === 'week'){
+      // Monday → today
+      const day = now.getDay() || 7; // 0=Sun → 7
+      const mon = new Date(now); mon.setDate(now.getDate() - day + 1);
+      s = iso(mon); e = iso(now);
+    } else if(range === 'lastweek'){
+      const day = now.getDay() || 7;
+      const mon = new Date(now); mon.setDate(now.getDate() - day + 1 - 7);
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+      s = iso(mon); e = iso(sun);
+    } else if(range === 'month'){
+      s = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;
+      e = iso(now);
+    } else if(range === 'lastmonth'){
+      const first = new Date(now.getFullYear(), now.getMonth()-1, 1);
+      const last  = new Date(now.getFullYear(), now.getMonth(), 0);
+      s = iso(first); e = iso(last);
+    }
+    document.getElementById('start').value = s;
+    document.getElementById('end').value   = e;
+    runAnalytics();
+  }
+  window.setDateRange = setDateRange;
+
+  // -------- Real-time table filter --------
+  function filterTable(tableId, query){
+    const q = query.trim().toLowerCase();
+    const rows = document.querySelectorAll(`#${tableId} tbody tr`);
+    rows.forEach(tr => {
+      const text = tr.textContent.toLowerCase();
+      tr.style.display = (!q || text.includes(q)) ? '' : 'none';
+    });
+  }
+  window.filterTable = filterTable;
+
+  // -------- Export All --------
+  async function exportAll(){
+    if(!__last || !__last.range || !__last.range.start) return alert('Run analysis first.');
+    const kinds = ['performance','picking','sold','returns','ratio','carriers','opproducts','opreturns_products','opreturns_ids','daycarrier','offinv'];
+    for(const k of kinds){
+      await new Promise(res => setTimeout(res, 350)); // small delay between downloads
+      try{ exportCSV(k); }catch(e){ console.warn('export failed for', k, e); }
+    }
+  }
+  window.exportAll = exportAll;
   function _fmt(x){ return (x===undefined||x===null) ? "" : String(x); }
 function _u(x){ return _fmt(x).trim().toUpperCase(); }
 
@@ -706,6 +797,9 @@ function _renderTopTable(tbodySel, rows){
   }
 
   function _renderCarriers(rows){
+    // restore header for country view
+    const head = document.getElementById('tbl-carriers-head');
+    if(head) head.innerHTML = `<tr><th>Country</th><th>Carrier</th><th>Printed IDs</th><th>Cancelled IDs</th><th>Printed % (country)</th><th>% of total</th><th>Batches</th></tr>`;
     const tb = document.querySelector('#tbl-carriers tbody');
     if(!tb) return;
     tb.innerHTML = (rows||[]).map(r=>{
@@ -722,6 +816,89 @@ function _renderTopTable(tbodySel, rows){
         <td>${r.batches}</td>
       </tr>`;
     }).join('');
+  }
+
+  // -------- Carrier family grouping --------
+  // Maps each raw carrier name → family name
+  const CARRIER_FAMILY_MAP = {
+    'NACEX':        'NACEX',
+    'NACEX PT':     'NACEX',
+    'CORREOS ES':   'CORREOS',
+    'CORREOS PT':   'CORREOS',
+    'CTT':          'CTT',
+    'CTT ILHAS':    'CTT',
+    'VASP':         'VASP',
+  };
+  function _carrierFamily(carrier){
+    const c = _u(carrier);
+    return CARRIER_FAMILY_MAP[c] || c;
+  }
+
+  // Current carriers view: 'country' | 'family'
+  let __carrierView = 'country';
+
+  function setCarrierView(mode){
+    __carrierView = mode;
+    // toggle button styles
+    document.getElementById('btn-carrier-bycountry').className = mode === 'country' ? 'btn' : 'btn secondary';
+    document.getElementById('btn-carrier-byfamily').className  = mode === 'family'  ? 'btn' : 'btn secondary';
+    // re-render with cached data
+    const rows = __last && __last.carrierRows ? __last.carrierRows : [];
+    if(mode === 'family'){
+      _renderCarriersByFamily(rows);
+    } else {
+      _renderCarriers(rows);
+      _updateCarrierChart(rows.slice(0,20).map(r=> `${r.country||''} • ${r.carrier} (${((r.printedPct||0)*100).toFixed(1)}%)`), rows.slice(0,20).map(r=>r.printedIds));
+    }
+  }
+  window.setCarrierView = setCarrierView;
+
+  function _buildFamilyRows(carrierRows){
+    const familyMap = {};
+    const totalPrinted = (carrierRows||[]).reduce((a,r)=>a+(r.printedIds||0),0);
+    (carrierRows||[]).forEach(r=>{
+      const fam = _carrierFamily(r.carrier);
+      if(!familyMap[fam]) familyMap[fam] = {family:fam, printedIds:0, cancelledIds:0, batches:0, carriers:[]};
+      familyMap[fam].printedIds  += r.printedIds  || 0;
+      familyMap[fam].cancelledIds+= r.cancelledIds|| 0;
+      familyMap[fam].batches     += r.batches     || 0;
+      familyMap[fam].carriers.push(r.carrier);
+    });
+    const famRows = Object.values(familyMap).map(f=>({
+      ...f,
+      sharePct: totalPrinted ? (f.printedIds/totalPrinted) : 0,
+      carriers: [...new Set(f.carriers)].sort().join(', ')
+    })).sort((a,b)=>(b.printedIds-a.printedIds)||a.family.localeCompare(b.family));
+    return {famRows, totalPrinted};
+  }
+
+  function _renderCarriersByFamily(carrierRows){
+    const {famRows, totalPrinted} = _buildFamilyRows(carrierRows);
+    // update table header
+    const head = document.getElementById('tbl-carriers-head');
+    if(head) head.innerHTML = `<tr><th>Family</th><th>Includes</th><th>Printed IDs</th><th>Cancelled IDs</th><th>% of total</th><th>Batches</th></tr>`;
+    const tb = document.querySelector('#tbl-carriers tbody');
+    if(!tb) return;
+    if(!famRows.length){ tb.innerHTML = `<tr><td colspan="6" class="muted">No data.</td></tr>`; return; }
+    tb.innerHTML = famRows.map(r=>{
+      const pct = (r.sharePct*100).toFixed(1);
+      const cls = r.sharePct >= 0.4 ? 'good' : (r.sharePct >= 0.2 ? 'warn' : '');
+      return `<tr>
+        <td><b>${_fmt(r.family)}</b></td>
+        <td class="muted" style="font-size:12px;">${_fmt(r.carriers)}</td>
+        <td>${r.printedIds}</td>
+        <td>${r.cancelledIds}</td>
+        <td>${cls ? `<span class="pill ${cls}">${pct}%</span>` : pct+'%'}</td>
+        <td>${r.batches}</td>
+      </tr>`;
+    }).join('');
+    // update chart
+    _updateCarrierChart(famRows.map(r=>`${r.family} (${(r.sharePct*100).toFixed(1)}%)`), famRows.map(r=>r.printedIds));
+  }
+
+  function _updateCarrierChart(labels, data){
+    _destroyChart('carrierPrinted');
+    __charts.carrierPrinted = _mkBarChart('chart-carrier-printed', labels, data, 'Printed IDs');
   }
 
   // -------- Products packed by operator (PACKING) --------
@@ -1606,10 +1783,14 @@ window.runAnalytics = runAnalytics;
     _destroyChart('ratio');
     __charts.ratio = _mkBarChart('chart-ratio', topRate.map(r=>r.product), topRate.map(r=>Math.round(r.rate*1000)/10), 'Return rate (%)');
 
-    // Printed IDs by carrier
-    const cr = (carrierRows||[]).slice(0, 20);
-    _destroyChart('carrierPrinted');
-    __charts.carrierPrinted = _mkBarChart('chart-carrier-printed', cr.map(r=> `${r.country||''} • ${r.carrier} (${((r.printedPct||0)*100).toFixed(1)}%)`), cr.map(r=>r.printedIds), 'Printed IDs');
+    // Printed IDs by carrier — respect current view
+    if(__carrierView === 'family'){
+      const {famRows} = _buildFamilyRows(carrierRows||[]);
+      _updateCarrierChart(famRows.map(r=>`${r.family} (${(r.sharePct*100).toFixed(1)}%)`), famRows.map(r=>r.printedIds));
+    } else {
+      const cr = (carrierRows||[]).slice(0, 20);
+      _updateCarrierChart(cr.map(r=> `${r.country||''} • ${r.carrier} (${((r.printedPct||0)*100).toFixed(1)}%)`), cr.map(r=>r.printedIds));
+    }
 
   }
 
@@ -1658,9 +1839,16 @@ window.runAnalytics = runAnalytics;
     }
 
     if(kind==='carriers'){
-      const rows = [['Country','Carrier','Printed_IDs','Cancelled_IDs','Printed_Pct_Country','Printed_Pct_Total','Batches']];
-      (__last.carrierRows||[]).forEach(r=>rows.push([r.country||'', r.carrier,r.printedIds,r.cancelledIds||0, ((r.printedPct||0)*100).toFixed(2)+'%', ((r.countrySharePct||0)*100).toFixed(2)+'%', r.batches]));
-      return _downloadCSV(`MURTEDE_Carriers_Printed_${tag}.csv`, rows);
+      if(__carrierView === 'family'){
+        const {famRows} = _buildFamilyRows(__last.carrierRows||[]);
+        const rows = [['Family','Includes','Printed_IDs','Cancelled_IDs','Share_Pct','Batches']];
+        famRows.forEach(r=>rows.push([r.family, r.carriers, r.printedIds, r.cancelledIds, ((r.sharePct||0)*100).toFixed(2)+'%', r.batches]));
+        return _downloadCSV(`MURTEDE_Carriers_Family_${tag}.csv`, rows);
+      } else {
+        const rows = [['Country','Carrier','Printed_IDs','Cancelled_IDs','Printed_Pct_Country','Printed_Pct_Total','Batches']];
+        (__last.carrierRows||[]).forEach(r=>rows.push([r.country||'', r.carrier,r.printedIds,r.cancelledIds||0, ((r.printedPct||0)*100).toFixed(2)+'%', ((r.countrySharePct||0)*100).toFixed(2)+'%', r.batches]));
+        return _downloadCSV(`MURTEDE_Carriers_Printed_${tag}.csv`, rows);
+      }
     }
 
     if(kind==='opproducts'){
