@@ -527,6 +527,135 @@
 
   function _nowISO(){ return new Date().toISOString().slice(0,10); }
 
+  // -------- Session cache (safe per-day reuse) --------
+  const __TODAY_CACHE_TTL_MS = 2 * 60 * 1000; // only today is refreshed periodically
+  const __CACHE_STORAGE_KEY = 'analytics_v3_session_cache_v2';
+  const __CACHE_MAX_ENTRIES_PER_BUCKET = 45;
+
+  function _emptySessionCache(){
+    return {days:{}, batches:{}};
+  }
+
+  let __sessionCache = _emptySessionCache();
+  let __inflightLoads = {days:{}, batches:{}};
+  let __runCacheStats = {dayHits:0, dayMisses:0, batchHits:0, batchMisses:0};
+
+  function _isTodayISO(dateClean){
+    return dateClean === _nowISO();
+  }
+
+  function _cacheTTLForDate(dateClean){
+    return _isTodayISO(dateClean) ? __TODAY_CACHE_TTL_MS : Infinity;
+  }
+
+  function _cloneCacheValue(value){
+    if(value === undefined || value === null) return value;
+    if(typeof structuredClone === 'function') return structuredClone(value);
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function _cacheIsExpired(entry, dateClean){
+    if(!entry || typeof entry.savedAt !== 'number') return true;
+    const ttl = _cacheTTLForDate(dateClean);
+    return Number.isFinite(ttl) && ((Date.now() - entry.savedAt) > ttl);
+  }
+
+  function _touchCacheHousekeeping(){
+    let changed = false;
+    ['days','batches'].forEach(bucket=>{
+      const store = __sessionCache[bucket] || (__sessionCache[bucket] = {});
+      Object.keys(store).forEach(key=>{
+        if(_cacheIsExpired(store[key], key)){
+          delete store[key];
+          changed = true;
+        }
+      });
+      const keys = Object.keys(store);
+      if(keys.length > __CACHE_MAX_ENTRIES_PER_BUCKET){
+        keys
+          .sort((a,b)=>(store[a].savedAt||0) - (store[b].savedAt||0))
+          .slice(0, keys.length - __CACHE_MAX_ENTRIES_PER_BUCKET)
+          .forEach(key=>{
+            delete store[key];
+            changed = true;
+          });
+      }
+    });
+    return changed;
+  }
+
+  function _persistSessionCache(){
+    try{
+      _touchCacheHousekeeping();
+      sessionStorage.setItem(__CACHE_STORAGE_KEY, JSON.stringify(__sessionCache));
+    }catch(e){
+      try{
+        // If storage quota is tight, prune older entries and retry once.
+        _touchCacheHousekeeping();
+        ['days','batches'].forEach(bucket=>{
+          const store = __sessionCache[bucket] || {};
+          const keys = Object.keys(store).sort((a,b)=>(store[a].savedAt||0) - (store[b].savedAt||0));
+          const removeN = Math.max(1, Math.ceil(keys.length / 3));
+          keys.slice(0, removeN).forEach(key=> delete store[key]);
+        });
+        sessionStorage.setItem(__CACHE_STORAGE_KEY, JSON.stringify(__sessionCache));
+      }catch(_e){
+        console.warn('Session cache persistence disabled', _e);
+      }
+    }
+  }
+
+  function _hydrateSessionCache(){
+    try{
+      const raw = sessionStorage.getItem(__CACHE_STORAGE_KEY);
+      if(!raw) return;
+      const parsed = JSON.parse(raw);
+      if(!parsed || typeof parsed !== 'object') return;
+      __sessionCache = {
+        days: (parsed.days && typeof parsed.days === 'object') ? parsed.days : {},
+        batches: (parsed.batches && typeof parsed.batches === 'object') ? parsed.batches : {}
+      };
+      if(_touchCacheHousekeeping()) _persistSessionCache();
+    }catch(e){
+      console.warn('Failed to hydrate session cache', e);
+      __sessionCache = _emptySessionCache();
+    }
+  }
+
+  function _getCacheEntry(bucket, key, dateClean){
+    const store = __sessionCache[bucket] || (__sessionCache[bucket] = {});
+    const entry = store[key];
+    if(!entry) return null;
+
+    if(_cacheIsExpired(entry, dateClean || key)){
+      delete store[key];
+      _persistSessionCache();
+      return null;
+    }
+
+    return _cloneCacheValue(entry.data);
+  }
+
+  function _setCacheEntry(bucket, key, data){
+    const store = __sessionCache[bucket] || (__sessionCache[bucket] = {});
+    store[key] = {
+      savedAt: Date.now(),
+      data: _cloneCacheValue(data)
+    };
+    _persistSessionCache();
+  }
+
+  function clearAnalyticsSessionCache(){
+    __sessionCache = _emptySessionCache();
+    __inflightLoads = {days:{}, batches:{}};
+    __runCacheStats = {dayHits:0, dayMisses:0, batchHits:0, batchMisses:0};
+    try{ sessionStorage.removeItem(__CACHE_STORAGE_KEY); }catch(_e){}
+    _setStatus('Session cache cleared.');
+  }
+  window.clearAnalyticsSessionCache = clearAnalyticsSessionCache;
+
+  _hydrateSessionCache();
+
   // -------- Date shortcuts --------
   function setDateRange(range){
     const now = new Date();
@@ -1172,54 +1301,109 @@ function _renderTopTable(tbodySel, rows){
 
 
   async function _loadDay(dateClean){
-    // Mesma estratégia do OFF: query por dateClean para evitar varrer a DB toda
-    const [regSnap, ppSnap] = await Promise.all([
-      db.ref('registos').orderByChild('dateClean').equalTo(dateClean).once('value'),
-      db.ref('pre_packing').orderByChild('dateClean').equalTo(dateClean).once('value')
-    ]);
+    const cached = _getCacheEntry('days', dateClean, dateClean);
+    if(cached){
+      __runCacheStats.dayHits += 1;
+      return cached;
+    }
 
-    const regObj = regSnap.val() || {};
-    const ppObj  = ppSnap.val() || {};
+    if(__inflightLoads.days[dateClean]){
+      __runCacheStats.dayHits += 1;
+      return _cloneCacheValue(await __inflightLoads.days[dateClean]);
+    }
 
-    const regList = Object.values(regObj).filter(Boolean);
-    const ppList  = Object.values(ppObj).filter(Boolean);
+    __runCacheStats.dayMisses += 1;
 
-    return {regList, ppList};
+    __inflightLoads.days[dateClean] = (async()=>{
+      // Mesma estratégia do OFF: query por dateClean para evitar varrer a DB toda
+      const [regSnap, ppSnap] = await Promise.all([
+        db.ref('registos').orderByChild('dateClean').equalTo(dateClean).once('value'),
+        db.ref('pre_packing').orderByChild('dateClean').equalTo(dateClean).once('value')
+      ]);
+
+      const regObj = regSnap.val() || {};
+      const ppObj  = ppSnap.val() || {};
+
+      const data = {
+        regList: Object.values(regObj).filter(Boolean),
+        ppList: Object.values(ppObj).filter(Boolean)
+      };
+
+      _setCacheEntry('days', dateClean, data);
+      return data;
+    })();
+
+    try{
+      return _cloneCacheValue(await __inflightLoads.days[dateClean]);
+    } finally {
+      delete __inflightLoads.days[dateClean];
+    }
   }
 
   let __deletedBatchesReadable = true;
 
   async function _loadBatchesForOneDay(dateClean){
-    const merged = {};
-
-    try{
-      const activeSnap = await db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
-      const activeObj = activeSnap.val() || {};
-      Object.entries(activeObj).forEach(([k,v])=>{
-        if(v) merged[k] = v;
-      });
-    }catch(e){
-      console.warn('active_batches read failed for', dateClean, e);
+    const cached = _getCacheEntry('batches', dateClean, dateClean);
+    if(cached){
+      __runCacheStats.batchHits += 1;
+      __deletedBatchesReadable = cached.__deletedBatchesReadable !== false;
+      const merged = cached.merged || {};
+      return _cloneCacheValue(merged);
     }
 
-    try{
-      const deletedSnap = await db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
-      const deletedObj = deletedSnap.val() || {};
-      Object.entries(deletedObj).forEach(([k,v])=>{
-        if(!v) return;
-        if(merged[k]){
-          merged['deleted__' + k] = v;
-        }else{
-          merged[k] = v;
-        }
-      });
-      __deletedBatchesReadable = true;
-    }catch(e){
-      __deletedBatchesReadable = false;
-      console.warn('deleted_batches read failed for', dateClean, e);
+    if(__inflightLoads.batches[dateClean]){
+      __runCacheStats.batchHits += 1;
+      const shared = await __inflightLoads.batches[dateClean];
+      __deletedBatchesReadable = shared.__deletedBatchesReadable !== false;
+      return _cloneCacheValue(shared.merged || {});
     }
 
-    return merged;
+    __runCacheStats.batchMisses += 1;
+
+    __inflightLoads.batches[dateClean] = (async()=>{
+      const merged = {};
+      let deletedReadable = true;
+
+      try{
+        const activeSnap = await db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
+        const activeObj = activeSnap.val() || {};
+        Object.entries(activeObj).forEach(([k,v])=>{
+          if(v) merged[k] = v;
+        });
+      }catch(e){
+        console.warn('active_batches read failed for', dateClean, e);
+      }
+
+      try{
+        const deletedSnap = await db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
+        const deletedObj = deletedSnap.val() || {};
+        Object.entries(deletedObj).forEach(([k,v])=>{
+          if(!v) return;
+          if(merged[k]){
+            merged['deleted__' + k] = v;
+          }else{
+            merged[k] = v;
+          }
+        });
+        deletedReadable = true;
+      }catch(e){
+        deletedReadable = false;
+        console.warn('deleted_batches read failed for', dateClean, e);
+      }
+
+      const payload = {merged, __deletedBatchesReadable: deletedReadable};
+      __deletedBatchesReadable = deletedReadable;
+      _setCacheEntry('batches', dateClean, payload);
+      return payload;
+    })();
+
+    try{
+      const payload = await __inflightLoads.batches[dateClean];
+      __deletedBatchesReadable = payload.__deletedBatchesReadable !== false;
+      return _cloneCacheValue(payload.merged || {});
+    } finally {
+      delete __inflightLoads.batches[dateClean];
+    }
   }
 
   async function _loadBatchesRange(dateList){
@@ -1241,6 +1425,7 @@ function _renderTopTable(tbodySel, rows){
     if(!s || !e) return alert('Select a date range.');
     if(s > e) return alert('Start date must be <= End date.');
 
+    __runCacheStats = {dayHits:0, dayMisses:0, batchHits:0, batchMisses:0};
     _setStatus('Loading…');
 
     const days = _dateListInclusive(s,e);
@@ -1680,7 +1865,8 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
   };
 
   const archivedNote = __deletedBatchesReadable ? ' • archived ON' : ' • archived unavailable';
-  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${archivedNote}`);
+  const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
+  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
 } 
 
 window.runAnalytics = runAnalytics;
