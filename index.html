@@ -1340,30 +1340,34 @@ function _renderTopTable(tbodySel, rows){
     }
   }
 
-  let __deletedBatchesReadable = true;
+  let __archivedBatchesReadable = true;
 
+  // HOJE      → só active_batches  (lotes eliminados/deleted não contam — consistente com OFF)
+  // PASSADO   → active_batches + archived_batches (histórico completo de lotes arquivados)
   async function _loadBatchesForOneDay(dateClean){
     const cached = _getCacheEntry('batches', dateClean, dateClean);
     if(cached){
       __runCacheStats.batchHits += 1;
-      __deletedBatchesReadable = cached.__deletedBatchesReadable !== false;
-      const merged = cached.merged || {};
-      return _cloneCacheValue(merged);
+      __archivedBatchesReadable = cached.__archivedBatchesReadable !== false;
+      return _cloneCacheValue(cached.merged || {});
     }
 
     if(__inflightLoads.batches[dateClean]){
       __runCacheStats.batchHits += 1;
       const shared = await __inflightLoads.batches[dateClean];
-      __deletedBatchesReadable = shared.__deletedBatchesReadable !== false;
+      __archivedBatchesReadable = shared.__archivedBatchesReadable !== false;
       return _cloneCacheValue(shared.merged || {});
     }
 
     __runCacheStats.batchMisses += 1;
 
+    const isToday = _isTodayISO(dateClean);
+
     __inflightLoads.batches[dateClean] = (async()=>{
       const merged = {};
-      let deletedReadable = true;
+      let archivedReadable = true;
 
+      // Sempre lê active_batches
       try{
         const activeSnap = await db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
         const activeObj = activeSnap.val() || {};
@@ -1374,32 +1378,35 @@ function _renderTopTable(tbodySel, rows){
         console.warn('active_batches read failed for', dateClean, e);
       }
 
-      try{
-        const deletedSnap = await db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
-        const deletedObj = deletedSnap.val() || {};
-        Object.entries(deletedObj).forEach(([k,v])=>{
-          if(!v) return;
-          if(merged[k]){
-            merged['deleted__' + k] = v;
-          }else{
-            merged[k] = v;
-          }
-        });
-        deletedReadable = true;
-      }catch(e){
-        deletedReadable = false;
-        console.warn('deleted_batches read failed for', dateClean, e);
+      // Para datas anteriores: lê archived_batches para ter histórico completo
+      // Para hoje: NÃO lê archived — só active conta (igual ao dashboard do OFF)
+      if(!isToday){
+        try{
+          const archSnap = await db.ref('archived_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
+          const archObj = archSnap.val() || {};
+          Object.entries(archObj).forEach(([k,v])=>{
+            if(!v) return;
+            // active_batches tem prioridade; archived só entra se a chave não existir
+            if(!merged[k]){
+              merged[k] = v;
+            }
+          });
+          archivedReadable = true;
+        }catch(e){
+          archivedReadable = false;
+          console.warn('archived_batches read failed for', dateClean, e);
+        }
       }
 
-      const payload = {merged, __deletedBatchesReadable: deletedReadable};
-      __deletedBatchesReadable = deletedReadable;
+      const payload = {merged, __archivedBatchesReadable: archivedReadable};
+      __archivedBatchesReadable = archivedReadable;
       _setCacheEntry('batches', dateClean, payload);
       return payload;
     })();
 
     try{
       const payload = await __inflightLoads.batches[dateClean];
-      __deletedBatchesReadable = payload.__deletedBatchesReadable !== false;
+      __archivedBatchesReadable = payload.__archivedBatchesReadable !== false;
       return _cloneCacheValue(payload.merged || {});
     } finally {
       delete __inflightLoads.batches[dateClean];
@@ -1864,7 +1871,7 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     totals
   };
 
-  const archivedNote = __deletedBatchesReadable ? ' • archived ON' : ' • archived unavailable';
+  const archivedNote = __archivedBatchesReadable ? ' • archived ON' : ' • archived unavailable';
   const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
   _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
 } 
