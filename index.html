@@ -218,7 +218,7 @@
   <div id="tab-pick" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">🧺 Picking by operator</h3>
     <div class="muted" style="font-size:12px; margin:0 0 10px 0;">
-      Based on <code>active_batches</code> records with <code>pickedBy</code>/<code>picked_by</code>.
+      Based on merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) with <code>pickedBy</code>/<code>picked_by</code>.
       IDs = expected IDs excluding cancelled; Products = inventory qty sum excluding WARRANTY ES/PT.
     </div>
     <div class="scroll">
@@ -292,7 +292,7 @@
     </div>
 
     <div style="height:320px; margin-top:8px;"><canvas id="chart-carrier-printed"></canvas></div>
-    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from <code>active_batches</code> (expected minus cancelled). <b>Country view</b>: % within each country (PT vs ES). <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, etc.</p>
+    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES). <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, etc.</p>
     <div class="scroll">
       <table id="tbl-carriers">
         <thead id="tbl-carriers-head">
@@ -407,7 +407,7 @@
     </div>
 
     <div class="muted" style="font-size:12px; margin-bottom:10px;">
-      Built from <code>active_batches</code> (expected IDs minus cancelled IDs) joined with <code>registos</code> PACKING by <code>id</code>.
+      Built from merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) using expected IDs minus cancelled IDs, joined with <code>registos</code> PACKING by <code>id</code>.
       Products exclude WARRANTY.
     </div>
 
@@ -434,7 +434,7 @@
       </div>
       <div>
         <label>&nbsp;</label>
-        <span class="muted" style="font-size:12px;">Fonte: <code>active_batches.inventory</code> (o que foi colado no OFFICE &gt; Create New Batch).</span>
+        <span class="muted" style="font-size:12px;">Fonte: inventory dos lotes no histórico completo (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>).</span>
       </div>
     </div>
 
@@ -777,11 +777,34 @@ function _dtKey(dc, tm){
       .filter(p => !_isExcludedProduct(p));
   }
 
+  function _normBatchId(id){
+    return String(id ?? '').trim();
+  }
+
+  function _batchExpectedIds(batch){
+    if(!batch || !batch.expected_ids) return [];
+    let expected = [];
+    if(Array.isArray(batch.expected_ids)) expected = batch.expected_ids;
+    else if(typeof batch.expected_ids === 'object') expected = Object.values(batch.expected_ids);
+    return expected.map(_normBatchId).filter(Boolean);
+  }
+
+  function _batchCancelledIds(batch){
+    if(!batch || !batch.cancelled_ids) return [];
+    let cancelled = [];
+    if(Array.isArray(batch.cancelled_ids)) cancelled = batch.cancelled_ids;
+    else if(typeof batch.cancelled_ids === 'object') cancelled = Object.keys(batch.cancelled_ids);
+    return cancelled.map(_normBatchId).filter(Boolean);
+  }
+
   function _requiredBatchIds(batch){
-    const expected = (batch && Array.isArray(batch.expected_ids)) ? batch.expected_ids : [];
-    const cancelled = (batch && batch.cancelled_ids) ? Object.keys(batch.cancelled_ids) : [];
-    const cset = new Set(cancelled);
+    const expected = _batchExpectedIds(batch);
+    const cset = new Set(_batchCancelledIds(batch));
     return expected.filter(id => !cset.has(id));
+  }
+
+  function _cancelledBatchCount(batch){
+    return _batchCancelledIds(batch).length;
   }
 
   function _carrierName(batch){
@@ -886,10 +909,10 @@ window.showTab = showTab;
       _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING', 'packedItems'),
       _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records', 'returnIds'),
       _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records', 'prepackScans'),
-      _kpi('Printed IDs', t.printedIds||0, 'From active_batches', 'printedIds'),
-      _kpi('OFF Items', t.offInvItems||0, 'Sum of active_batches.inventory (excluding WARRANTY)', 'offItems'),
-      _kpi('OFF SKUs', t.offInvSkus||0, 'Unique SKUs in active_batches.inventory (excluding WARRANTY)', 'offSkus'),
-      _kpi('Cancelled IDs', t.cancelledIds||0, 'From active_batches', 'cancelledIds'),
+      _kpi('Printed IDs', t.printedIds||0, 'From batch history', 'printedIds'),
+      _kpi('OFF Items', t.offInvItems||0, 'Sum of batch history inventory (excluding WARRANTY)', 'offItems'),
+      _kpi('OFF SKUs', t.offInvSkus||0, 'Unique SKUs in batch history inventory (excluding WARRANTY)', 'offSkus'),
+      _kpi('Cancelled IDs', t.cancelledIds||0, 'From batch history', 'cancelledIds'),
       _kpi('PT %', (t.ptPrintedPct!=null ? (t.ptPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (PT carriers)', 'ptPct'),
       _kpi('ES %', (t.esPrintedPct!=null ? (t.esPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (ES carriers)', 'esPct')
     ].join('');
@@ -1363,8 +1386,12 @@ function _renderTopTable(tbodySel, rows){
 
   let __archivedBatchesReadable = true;
 
-  // HOJE      → só active_batches  (lotes eliminados/deleted não contam — consistente com OFF)
-  // PASSADO   → active_batches + archived_batches (histórico completo de lotes arquivados)
+  // Batch history loader:
+  // - active_batches     → batches still live in OFF/WH
+  // - deleted_batches    → current archive used by OFF v8+
+  // - archived_batches   → legacy archive fallback (older versions)
+  // We always merge all 3 sources for the selected day so every analytics tab
+  // keeps counting the same IDs even after a batch is archived.
   async function _loadBatchesForOneDay(dateClean){
     const cached = _getCacheEntry('batches', dateClean, dateClean);
     if(cached){
@@ -1382,45 +1409,53 @@ function _renderTopTable(tbodySel, rows){
 
     __runCacheStats.batchMisses += 1;
 
-    const isToday = _isTodayISO(dateClean);
-
     __inflightLoads.batches[dateClean] = (async()=>{
       const merged = {};
-      let archivedReadable = true;
+      const [activeRes, deletedRes, legacyRes] = await Promise.allSettled([
+        db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value'),
+        db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value'),
+        db.ref('archived_batches').orderByChild('dateClean').equalTo(dateClean).once('value')
+      ]);
 
-      // Sempre lê active_batches
-      try{
-        const activeSnap = await db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
-        const activeObj = activeSnap.val() || {};
+      if(activeRes.status === 'fulfilled'){
+        const activeObj = activeRes.value.val() || {};
         Object.entries(activeObj).forEach(([k,v])=>{
           if(v) merged[k] = v;
         });
-      }catch(e){
-        console.warn('active_batches read failed for', dateClean, e);
+      }else{
+        console.warn('active_batches read failed for', dateClean, activeRes.reason);
       }
 
-      // Para datas anteriores: lê archived_batches para ter histórico completo
-      // Para hoje: NÃO lê archived — só active conta (igual ao dashboard do OFF)
-      if(!isToday){
-        try{
-          const archSnap = await db.ref('archived_batches').orderByChild('dateClean').equalTo(dateClean).once('value');
-          const archObj = archSnap.val() || {};
-          Object.entries(archObj).forEach(([k,v])=>{
-            if(!v) return;
-            // active_batches tem prioridade; archived só entra se a chave não existir
-            if(!merged[k]){
-              merged[k] = v;
-            }
-          });
-          archivedReadable = true;
-        }catch(e){
-          archivedReadable = false;
-          console.warn('archived_batches read failed for', dateClean, e);
-        }
+      if(legacyRes.status === 'fulfilled'){
+        const legacyObj = legacyRes.value.val() || {};
+        Object.entries(legacyObj).forEach(([k,v])=>{
+          if(!v) return;
+          if(!merged[k]) merged[k] = v;
+        });
+      }else{
+        console.warn('archived_batches read failed for', dateClean, legacyRes.reason);
       }
 
-      const payload = {merged, __archivedBatchesReadable: archivedReadable};
-      __archivedBatchesReadable = archivedReadable;
+      if(deletedRes.status === 'fulfilled'){
+        const deletedObj = deletedRes.value.val() || {};
+        Object.entries(deletedObj).forEach(([k,v])=>{
+          if(!v) return;
+          merged[k] = v;
+        });
+      }else{
+        console.warn('deleted_batches read failed for', dateClean, deletedRes.reason);
+      }
+
+      if(activeRes.status === 'fulfilled'){
+        const activeObj = activeRes.value.val() || {};
+        Object.entries(activeObj).forEach(([k,v])=>{
+          if(v) merged[k] = v;
+        });
+      }
+
+      const historyReadable = (deletedRes.status === 'fulfilled') || (legacyRes.status === 'fulfilled');
+      const payload = {merged, __archivedBatchesReadable: historyReadable};
+      __archivedBatchesReadable = historyReadable;
       _setCacheEntry('batches', dateClean, payload);
       return payload;
     })();
@@ -1658,7 +1693,7 @@ function _renderTopTable(tbodySel, rows){
     });
     ratioRows.sort((a,b)=> (b.rate - a.rate) || (b.returns - a.returns) || (b.sold - a.sold));
 
-   _setStatus('Loading batches by date…');
+   _setStatus('Loading batch history by date…');
 let carrierRows = [];
 let pickRows = [];
 let bObj = {};
@@ -1675,25 +1710,7 @@ try{
 
     if(!pickMap[u]) pickMap[u] = {user:u, pickedBatches:0, pickedIds:0, pickedProducts:0};
     pickMap[u].pickedBatches += 1;
-
-    let expectedIds = [];
-    if(b.expected_ids && Array.isArray(b.expected_ids)) {
-      expectedIds = b.expected_ids;
-    } else if(b.expected_ids && typeof b.expected_ids === 'object') {
-      expectedIds = Object.values(b.expected_ids);
-    }
-    
-    let cancelledIds = [];
-    if(b.cancelled_ids) {
-      if(Array.isArray(b.cancelled_ids)) {
-        cancelledIds = b.cancelled_ids;
-      } else if(typeof b.cancelled_ids === 'object') {
-        cancelledIds = Object.keys(b.cancelled_ids);
-      }
-    }
-    
-    const cancelledSet = new Set(cancelledIds);
-    const requiredIds = expectedIds.filter(id => !cancelledSet.has(id));
+    const requiredIds = _requiredBatchIds(b);
     pickMap[u].pickedIds += requiredIds.length;
 
     const inv = b.inventory || {};
@@ -1712,25 +1729,7 @@ try{
     if(!daySet.has(dc)) return;
 
     const carrier = _carrierName(b);
-    
-    let expectedIds = [];
-    if(b.expected_ids && Array.isArray(b.expected_ids)) {
-      expectedIds = b.expected_ids;
-    } else if(b.expected_ids && typeof b.expected_ids === 'object') {
-      expectedIds = Object.values(b.expected_ids);
-    }
-    
-    let cancelledIds = [];
-    if(b.cancelled_ids) {
-      if(Array.isArray(b.cancelled_ids)) {
-        cancelledIds = b.cancelled_ids;
-      } else if(typeof b.cancelled_ids === 'object') {
-        cancelledIds = Object.keys(b.cancelled_ids);
-      }
-    }
-    
-    const cancelledSet = new Set(cancelledIds);
-    const ids = expectedIds.filter(id => !cancelledSet.has(id));
+    const ids = _requiredBatchIds(b);
 
     if(!dayCarrierProdMap[dc]) dayCarrierProdMap[dc] = {};
     if(!dayCarrierProdMap[dc][carrier]) dayCarrierProdMap[dc][carrier] = {collectedIds:0, collectedItems:0, prodMap:{}};
@@ -1809,26 +1808,8 @@ try{
 
     const carrier = _carrierName(b);
     const country = _carrierCountry(carrier);
-    
-    let expectedIds = [];
-    if(b.expected_ids && Array.isArray(b.expected_ids)) {
-      expectedIds = b.expected_ids;
-    } else if(b.expected_ids && typeof b.expected_ids === 'object') {
-      expectedIds = Object.values(b.expected_ids);
-    }
-    
-    let cancelledIds = [];
-    if(b.cancelled_ids) {
-      if(Array.isArray(b.cancelled_ids)) {
-        cancelledIds = b.cancelled_ids;
-      } else if(typeof b.cancelled_ids === 'object') {
-        cancelledIds = Object.keys(b.cancelled_ids);
-      }
-    }
-    
-    const cancelledSet = new Set(cancelledIds);
-    const printedN = expectedIds.filter(id => !cancelledSet.has(id)).length;
-    const cancelledN = cancelledSet.size;
+    const printedN = _requiredBatchIds(b).length;
+    const cancelledN = _cancelledBatchCount(b);
 
     if(!byC[carrier]) byC[carrier] = {carrier, country, printedIds:0, cancelledIds:0, batches:0, printedPct:0, countrySharePct:0};
     byC[carrier].printedIds += printedN;
@@ -1897,7 +1878,7 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     rawBatches: (typeof bObj !== 'undefined') ? bObj : {}
   };
 
-  const archivedNote = __archivedBatchesReadable ? ' • archived ON' : ' • archived unavailable';
+  const archivedNote = __archivedBatchesReadable ? ' • batch history ON' : ' • batch history unavailable';
   const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
   _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
 } 
@@ -1986,11 +1967,7 @@ window.runAnalytics = runAnalytics;
       Object.values(__last.rawBatches||{}).filter(Boolean).forEach(b=>{
         const carrier = _carrierName(b);
         const dc = b.dateClean||'';
-        let cancelled = [];
-        if(b.cancelled_ids){
-          if(Array.isArray(b.cancelled_ids)) cancelled = b.cancelled_ids;
-          else if(typeof b.cancelled_ids === 'object') cancelled = Object.keys(b.cancelled_ids);
-        }
+        const cancelled = _batchCancelledIds(b);
         cancelled.forEach(id=>{
           rows.push(`<tr><td>${dc}</td><td><b>${_fmt(id)}</b></td><td>${carrier}</td></tr>`);
         });
