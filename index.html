@@ -70,6 +70,17 @@
 
     .hide{display:none !important;}
     .muted{color:var(--muted)}
+
+    /* KPI drill-down modal */
+    .kpi{cursor:pointer; transition: border-color .15s, box-shadow .15s;}
+    .kpi:hover{border-color:rgba(122,167,255,.5); box-shadow:0 0 0 2px rgba(122,167,255,.18);}
+    .kpi-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px;}
+    .kpi-modal{background:#0f1a30;border:1px solid rgba(122,167,255,.3);border-radius:18px;width:min(820px,100%);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.6);}
+    .kpi-modal-header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid rgba(255,255,255,.08);}
+    .kpi-modal-header h3{margin:0;font-size:15px;}
+    .kpi-modal-close{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.15);color:var(--text);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px;}
+    .kpi-modal-close:hover{background:rgba(255,255,255,.18);}
+    .kpi-modal-body{overflow:auto;padding:16px 20px;flex:1;}
   </style>
 </head>
 <body>
@@ -488,7 +499,16 @@
 
 </div>
 
-<!-- Firebase (compat) -->
+<!-- KPI drill-down modal -->
+<div id="kpi-modal-overlay" class="kpi-modal-overlay hide" onclick="closeKpiModal(event)">
+  <div class="kpi-modal" onclick="event.stopPropagation()">
+    <div class="kpi-modal-header">
+      <h3 id="kpi-modal-title">Detail</h3>
+      <button class="kpi-modal-close" onclick="closeKpiModal()">✕ Close</button>
+    </div>
+    <div class="kpi-modal-body" id="kpi-modal-body"></div>
+  </div>
+</div>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
@@ -854,23 +874,24 @@ window.showTab = showTab;
   window.handleGoogleLogin = handleGoogleLogin;
   
 ///////////////////
-  function _kpi(title, value, hint){
-    return `<div class="kpi"><div class="t">${title}</div><div class="v">${value}</div><div class="t" style="margin-top:6px;">${hint||""}</div></div>`;
+  function _kpi(title, value, hint, drillKey){
+    const clickAttr = drillKey ? ` onclick="openKpiDrill('${drillKey}')" title="Click to see detail"` : '';
+    return `<div class="kpi"${clickAttr}><div class="t">${title}</div><div class="v">${value}</div><div class="t" style="margin-top:6px;">${hint||""}</div></div>`;
   }
 
   function _renderKPIs(t){
     const el = document.getElementById('kpis');
     el.innerHTML = [
-      _kpi('Packed IDs', t.packedIds||0, 'PACKING records'),
-      _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING'),
-      _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records'),
-      _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records'),
-      _kpi('Printed IDs', t.printedIds||0, 'From active_batches'),
-      _kpi('OFF Items', t.offInvItems||0, 'Sum of active_batches.inventory (excluding WARRANTY)'),
-      _kpi('OFF SKUs', t.offInvSkus||0, 'Unique SKUs in active_batches.inventory (excluding WARRANTY)'),
-      _kpi('Cancelled IDs', t.cancelledIds||0, 'From active_batches'),
-      _kpi('PT %', (t.ptPrintedPct!=null ? (t.ptPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (PT carriers)'),
-      _kpi('ES %', (t.esPrintedPct!=null ? (t.esPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (ES carriers)')
+      _kpi('Packed IDs', t.packedIds||0, 'PACKING records', 'packedIds'),
+      _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING', 'packedItems'),
+      _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records', 'returnIds'),
+      _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records', 'prepackScans'),
+      _kpi('Printed IDs', t.printedIds||0, 'From active_batches', 'printedIds'),
+      _kpi('OFF Items', t.offInvItems||0, 'Sum of active_batches.inventory (excluding WARRANTY)', 'offItems'),
+      _kpi('OFF SKUs', t.offInvSkus||0, 'Unique SKUs in active_batches.inventory (excluding WARRANTY)', 'offSkus'),
+      _kpi('Cancelled IDs', t.cancelledIds||0, 'From active_batches', 'cancelledIds'),
+      _kpi('PT %', (t.ptPrintedPct!=null ? (t.ptPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (PT carriers)', 'ptPct'),
+      _kpi('ES %', (t.esPrintedPct!=null ? (t.esPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (ES carriers)', 'esPct')
     ].join('');
   }
 
@@ -1640,9 +1661,10 @@ function _renderTopTable(tbodySel, rows){
    _setStatus('Loading batches by date…');
 let carrierRows = [];
 let pickRows = [];
+let bObj = {};
 try{
   const daySet = new Set(days);
-  const bObj = await _loadBatchesRange(days);
+  bObj = await _loadBatchesRange(days);
 
   const pickMap = {};
   Object.values(bObj).filter(Boolean).forEach(b=>{
@@ -1868,7 +1890,11 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     opReturnsIdsMap: returnsUserIdMap,
     dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
     offInvMap: (window.__offInvMap || {}),
-    totals
+    totals,
+    rawPacked: packed,
+    rawReturns: returns,
+    rawPP: pp,
+    rawBatches: (typeof bObj !== 'undefined') ? bObj : {}
   };
 
   const archivedNote = __archivedBatchesReadable ? ' • archived ON' : ' • archived unavailable';
@@ -1877,6 +1903,147 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
 } 
 
 window.runAnalytics = runAnalytics;
+
+  // -------- KPI drill-down modal --------
+  function closeKpiModal(e){
+    if(e && e.target !== document.getElementById('kpi-modal-overlay')) return;
+    document.getElementById('kpi-modal-overlay').classList.add('hide');
+  }
+  window.closeKpiModal = closeKpiModal;
+
+  document.addEventListener('keydown', e => {
+    if(e.key === 'Escape') document.getElementById('kpi-modal-overlay').classList.add('hide');
+  });
+
+  function _tbl(headers, rows, emptyMsg){
+    if(!rows || !rows.length) return `<p class="muted">${emptyMsg||'No data.'}</p>`;
+    return `<div class="scroll" style="max-height:55vh;">
+      <table>
+        <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>${rows.join('')}</tbody>
+      </table>
+    </div>`;
+  }
+
+  function openKpiDrill(key){
+    if(!__last || !__last.range || !__last.range.start){
+      alert('Run analysis first.');
+      return;
+    }
+    const overlay = document.getElementById('kpi-modal-overlay');
+    const title   = document.getElementById('kpi-modal-title');
+    const body    = document.getElementById('kpi-modal-body');
+
+    let html = '';
+    let label = '';
+
+    if(key === 'packedIds'){
+      label = `Packed IDs (${(__last.rawPacked||[]).length})`;
+      const rows = (__last.rawPacked||[])
+        .slice().sort((a,b)=> (b.dateClean||'').localeCompare(a.dateClean||'') || (b.startTime||'').localeCompare(a.startTime||''))
+        .map(r=>`<tr>
+          <td>${r.dateClean||''}</td>
+          <td><b>${r.id||'-'}</b></td>
+          <td>${r.user||'-'}</td>
+          <td>${r.startTime||'-'}</td>
+          <td>${_countProducts(r.prods)}</td>
+          <td style="font-size:11px;color:var(--muted);">${_fmt(r.prods).replace(/\|/g,' · ')}</td>
+        </tr>`);
+      html = _tbl(['Date','ID','Operator','Time','Items','Products'], rows, 'No PACKING records.');
+
+    } else if(key === 'packedItems'){
+      label = `Packed Items — top products`;
+      const rows = (__last.soldRows||[]).slice(0,200).map((r,i)=>`<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`);
+      html = _tbl(['#','Product','Qty'], rows, 'No data.');
+
+    } else if(key === 'returnIds'){
+      label = `Returns IDs (${(__last.rawReturns||[]).length})`;
+      const rows = (__last.rawReturns||[])
+        .slice().sort((a,b)=> (b.dateClean||'').localeCompare(a.dateClean||'') || (b.startTime||'').localeCompare(a.startTime||''))
+        .map(r=>`<tr>
+          <td>${r.dateClean||''}</td>
+          <td><b>${r.id||'-'}</b></td>
+          <td>${r.user||'-'}</td>
+          <td>${r.startTime||'-'}</td>
+          <td>${_countProducts(r.prods)}</td>
+          <td style="font-size:11px;color:var(--muted);">${_fmt(r.prods).replace(/\|/g,' · ')}</td>
+        </tr>`);
+      html = _tbl(['Date','ID','Operator','Time','Items','Products'], rows, 'No RETURN records.');
+
+    } else if(key === 'prepackScans'){
+      label = `Pre-pack Scans (${(__last.rawPP||[]).length})`;
+      // aggregate by product
+      const map = {};
+      (__last.rawPP||[]).forEach(p=>{ map[p.product||'?'] = (map[p.product||'?']||0)+1; });
+      const rows = Object.entries(map)
+        .sort((a,b)=>b[1]-a[1])
+        .map(([prod,qty],i)=>`<tr><td>${i+1}</td><td><b>${_fmt(prod)}</b></td><td>${qty}</td></tr>`);
+      html = _tbl(['#','Product','Scans'], rows, 'No pre-pack records.');
+
+    } else if(key === 'cancelledIds'){
+      label = `Cancelled IDs`;
+      const rows = [];
+      Object.values(__last.rawBatches||{}).filter(Boolean).forEach(b=>{
+        const carrier = _carrierName(b);
+        const dc = b.dateClean||'';
+        let cancelled = [];
+        if(b.cancelled_ids){
+          if(Array.isArray(b.cancelled_ids)) cancelled = b.cancelled_ids;
+          else if(typeof b.cancelled_ids === 'object') cancelled = Object.keys(b.cancelled_ids);
+        }
+        cancelled.forEach(id=>{
+          rows.push(`<tr><td>${dc}</td><td><b>${_fmt(id)}</b></td><td>${carrier}</td></tr>`);
+        });
+      });
+      rows.sort((a,b)=>a.localeCompare(b));
+      html = _tbl(['Date','Cancelled ID','Carrier'], rows, 'No cancelled IDs found.');
+
+    } else if(key === 'printedIds'){
+      label = `Printed IDs by carrier`;
+      const rows = (__last.carrierRows||[]).map(r=>`<tr>
+        <td><b>${r.country||'-'}</b></td>
+        <td>${r.carrier}</td>
+        <td>${r.printedIds}</td>
+        <td>${r.cancelledIds||0}</td>
+        <td>${r.batches}</td>
+      </tr>`);
+      html = _tbl(['Country','Carrier','Printed','Cancelled','Batches'], rows, 'No carrier data.');
+
+    } else if(key === 'offItems' || key === 'offSkus'){
+      label = key === 'offItems' ? 'OFF Items by carrier' : 'OFF SKUs by carrier';
+      const mp = __last.offInvMap || {};
+      const rows = Object.keys(mp).sort().map(carrier=>{
+        const o = mp[carrier]||{batches:0,totalQty:0,skuMap:{}};
+        return `<tr>
+          <td><b>${_fmt(carrier)}</b></td>
+          <td>${o.batches||0}</td>
+          <td>${Object.keys(o.skuMap||{}).length}</td>
+          <td>${o.totalQty||0}</td>
+          <td style="font-size:11px;color:var(--muted);">${Object.entries(o.skuMap||{}).sort((a,b)=>b[1]-a[1]).slice(0,8).map(([s,q])=>`${s}×${q}`).join(', ')}</td>
+        </tr>`;
+      });
+      html = _tbl(['Carrier','Batches','SKUs','Total Qty','Top SKUs'], rows, 'No OFF inventory data.');
+
+    } else if(key === 'ptPct' || key === 'esPct'){
+      const country = key === 'ptPct' ? 'PT' : 'ES';
+      label = `${country} Carriers — Printed IDs`;
+      const rows = (__last.carrierRows||[])
+        .filter(r=>r.country===country)
+        .map(r=>`<tr>
+          <td><b>${r.carrier}</b></td>
+          <td>${r.printedIds}</td>
+          <td>${r.cancelledIds||0}</td>
+          <td>${((r.printedPct||0)*100).toFixed(1)}%</td>
+          <td>${r.batches}</td>
+        </tr>`);
+      html = _tbl(['Carrier','Printed IDs','Cancelled','% in '+country,'Batches'], rows, `No ${country} carriers found.`);
+    }
+
+    title.textContent = label;
+    body.innerHTML = html;
+    overlay.classList.remove('hide');
+  }
+  window.openKpiDrill = openKpiDrill;
 
   // ---------- Charts (Chart.js) ----------
   const __charts = {trend:null, opsIds:null, opsItems:null, retOpsIds:null, retOpsItems:null, sold:null, ret:null, ratio:null, carrierPrinted:null, opRetProds:null, opRetIds:null};
