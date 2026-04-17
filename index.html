@@ -407,7 +407,7 @@
     </div>
 
     <div class="muted" style="font-size:12px; margin-bottom:10px;">
-      Built from merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) using expected IDs minus cancelled IDs, joined with <code>registos</code> PACKING by <code>id</code>.
+      Built from merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) using expected IDs minus cancelled IDs, joined with the latest <code>registos</code> PACKING per <code>batch+id</code>.
       Products exclude WARRANTY.
     </div>
 
@@ -753,6 +753,58 @@ function _dtKey(dc, tm){
     return dc + " " + tm;
   }
 
+  function _batchIdKey(batch, id){
+    const batchKey = String(batch || 'GENERAL').trim();
+    const idKey = String(id || '').trim();
+    if(!idKey) return '';
+    return batchKey + '||' + idKey;
+  }
+
+  function _packRecordMoment(x){
+    if(Number.isFinite(x && x.endTs)) return x.endTs;
+    const dt = _dtKey(x && x.dateClean, (x && (x.endTime || x.startTime)) || '');
+    if(!dt) return null;
+    const ms = Date.parse(dt.replace(' ', 'T'));
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  function _buildLatestPackedEntries(packedRecords){
+    const latest = {};
+    const latestMoment = {};
+
+    (packedRecords || []).forEach((x, idx)=>{
+      const batchKey = String(x && x.batch || 'GENERAL').trim();
+      const idKey = String(x && x.id || '').trim();
+      const key = idKey ? _batchIdKey(batchKey, idKey) : `__RAW__${batchKey}||${x && x.dateClean || ''}||${x && (x.endTime || x.startTime) || ''}||${idx}`;
+      const curMoment = _packRecordMoment(x);
+      const prev = latest[key];
+      const prevMoment = latestMoment[key];
+
+      if(!prev){
+        latest[key] = x;
+        latestMoment[key] = curMoment;
+        return;
+      }
+
+      if(curMoment != null && prevMoment != null){
+        if(curMoment >= prevMoment){
+          latest[key] = x;
+          latestMoment[key] = curMoment;
+        }
+        return;
+      }
+
+      const curKey = _dtKey(x && x.dateClean, x && (x.endTime || x.startTime));
+      const prevKey = _dtKey(prev && prev.dateClean, prev && (prev.endTime || prev.startTime));
+      if(curKey >= prevKey){
+        latest[key] = x;
+        latestMoment[key] = curMoment;
+      }
+    });
+
+    return Object.values(latest);
+  }
+
   function _parseTimeToSec(tm){
     tm = (tm||"").toString().trim();
     if(!tm) return null;
@@ -905,7 +957,7 @@ window.showTab = showTab;
   function _renderKPIs(t){
     const el = document.getElementById('kpis');
     el.innerHTML = [
-      _kpi('Packed IDs', t.packedIds||0, 'PACKING records', 'packedIds'),
+      _kpi('Packed IDs', t.packedIds||0, 'Latest PACKING per batch+ID', 'packedIds'),
       _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING', 'packedItems'),
       _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records', 'returnIds'),
       _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records', 'prepackScans'),
@@ -1526,7 +1578,8 @@ function _renderTopTable(tbodySel, rows){
       dateClean: p.dateClean || ''
     }));
 
-    const packed = reg.filter(x=>x.mode==='PACKING');
+    const packedRecords = reg.filter(x=>x.mode==='PACKING');
+    const packed = _buildLatestPackedEntries(packedRecords);
     const returns = reg.filter(x=>x.mode==='RETURN' || x.mode==='RETURNS');
 
     // products packed per operator (user -> {product: qty})
@@ -1560,16 +1613,15 @@ function _renderTopTable(tbodySel, rows){
       }
     });
 
-    // id -> products (from PACKING)
-    // NOTE: expected_ids in batches can be numbers/strings; we normalize keys to trimmed strings.
-    // If the same ID appears multiple times in PACKING, we MERGE products (keeps correct item counts).
-    const packedById = {};
+    // batch+id -> products (from latest PACKING per batch+ID)
+    // NOTE: the same order ID can legitimately be printed again in a different batch after a cancellation.
+    // We therefore count 1 packed entry per batch+ID (latest PACKING in that batch), which avoids double-counting
+    // corrections inside the same batch while still counting a genuine re-print/re-pack in another batch.
+    const packedByBatchId = {};
     packed.forEach(x=>{
-      const key = String(x.id||'').trim();
-          if(!key) return;
-      const prods = _splitProducts(x.prods);
-      if(!packedById[key]) packedById[key] = [];
-      packedById[key].push(...prods);
+      const key = _batchIdKey(x.batch, x.id);
+      if(!key) return;
+      packedByBatchId[key] = _splitProducts(x.prods);
     });
 
 
@@ -1724,7 +1776,8 @@ try{
   pickRows = Object.values(pickMap).sort((a,b)=> (b.pickedIds-a.pickedIds) || (b.pickedProducts-a.pickedProducts));
 
   const dayCarrierProdMap = {};
-  Object.values(bObj).filter(Boolean).forEach(b=>{
+  Object.entries(bObj).forEach(([batchKey, b])=>{
+    if(!b) return;
     const dc = b.dateClean || '';
     if(!daySet.has(dc)) return;
 
@@ -1736,10 +1789,10 @@ try{
 
     const bucket = dayCarrierProdMap[dc][carrier];
     ids.forEach(id=>{
-      const key = String(id).trim();
-      if(!key) return;
+      const idKey = String(id).trim();
+      if(!idKey) return;
       bucket.collectedIds += 1;
-      const prods = packedById[key] || [];
+      const prods = packedByBatchId[_batchIdKey(batchKey, idKey)] || [];
       bucket.collectedItems += prods.length;
       prods.forEach(p=>{
         bucket.prodMap[p] = (bucket.prodMap[p] || 0) + 1;
@@ -1873,6 +1926,7 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     offInvMap: (window.__offInvMap || {}),
     totals,
     rawPacked: packed,
+    rawPackingRecords: packedRecords,
     rawReturns: returns,
     rawPP: pp,
     rawBatches: (typeof bObj !== 'undefined') ? bObj : {}
@@ -1880,7 +1934,7 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
 
   const archivedNote = __archivedBatchesReadable ? ' • batch history ON' : ' • batch history unavailable';
   const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
-  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKING • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
+  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKED IDs • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
 } 
 
 window.runAnalytics = runAnalytics;
@@ -1921,16 +1975,17 @@ window.runAnalytics = runAnalytics;
     if(key === 'packedIds'){
       label = `Packed IDs (${(__last.rawPacked||[]).length})`;
       const rows = (__last.rawPacked||[])
-        .slice().sort((a,b)=> (b.dateClean||'').localeCompare(a.dateClean||'') || (b.startTime||'').localeCompare(a.startTime||''))
+        .slice().sort((a,b)=> (b.dateClean||'').localeCompare(a.dateClean||'') || (b.endTime||b.startTime||'').localeCompare(a.endTime||a.startTime||''))
         .map(r=>`<tr>
           <td>${r.dateClean||''}</td>
+          <td><b>${r.batch||'GENERAL'}</b></td>
           <td><b>${r.id||'-'}</b></td>
           <td>${r.user||'-'}</td>
-          <td>${r.startTime||'-'}</td>
+          <td>${r.endTime||r.startTime||'-'}</td>
           <td>${_countProducts(r.prods)}</td>
           <td style="font-size:11px;color:var(--muted);">${_fmt(r.prods).replace(/\|/g,' · ')}</td>
         </tr>`);
-      html = _tbl(['Date','ID','Operator','Time','Items','Products'], rows, 'No PACKING records.');
+      html = _tbl(['Date','Batch','ID','Operator','Time','Items','Products'], rows, 'No packed IDs.');
 
     } else if(key === 'packedItems'){
       label = `Packed Items — top products`;
