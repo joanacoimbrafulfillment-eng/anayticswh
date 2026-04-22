@@ -552,7 +552,8 @@
           <button class="btn secondary" onclick="exportCSV('performance')">Performance</button>
           <button class="btn secondary" onclick="exportCSV('picking')">Picking</button>
           <button class="btn secondary" onclick="exportCSV('sold')">Top sold</button>
-          <button class="btn secondary" onclick="exportCSV('returns_refunds')">Returns + Refunds (all)</button>
+          <button class="btn secondary" onclick="exportCSV('returns')">Returns (all)</button>
+          <button class="btn secondary" onclick="exportCSV('refunds')">Refunds (all)</button>
           <button class="btn secondary" onclick="exportCSV('ratio')">Return rate</button>
           <button class="btn secondary" onclick="exportCSV('carriers')">Carriers (printed)</button>
           <button class="btn secondary" onclick="exportCSV('opproducts')">Products by operator</button>
@@ -811,7 +812,7 @@
   // -------- Export All --------
   async function exportAll(){
     if(!__last || !__last.range || !__last.range.start) return alert('Run analysis first.');
-    const kinds = ['performance','picking','sold','returns_refunds','ratio','carriers','opproducts','opreturns_products','opreturns_ids','oprefunds_products','oprefunds_ids','daycarrier','offinv'];
+    const kinds = ['performance','picking','sold','returns','refunds','ratio','carriers','opproducts','opreturns_products','opreturns_ids','oprefunds_products','oprefunds_ids','daycarrier','offinv'];
     for(const k of kinds){
       await new Promise(res => setTimeout(res, 350)); // small delay between downloads
       try{ exportCSV(k); }catch(e){ console.warn('export failed for', k, e); }
@@ -985,8 +986,9 @@ function _dtKey(dc, tm){
 
 function showTab(key){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===key));
-  ['perf','pick','sold','ret','ratio','carriers','opprods','oprets','daycar','offinv','export'].forEach(k=>{
-    document.getElementById('tab-'+k).classList.toggle('hide', k!==key);
+  ['perf','pick','sold','ret','refunds','ratio','carriers','opprods','oprets','oprefunds','daycar','offinv','export'].forEach(k=>{
+    const section = document.getElementById('tab-'+k);
+    if(section) section.classList.toggle('hide', k!==key);
   });
 }
 window.showTab = showTab;
@@ -2510,11 +2512,15 @@ window.runAnalytics = runAnalytics;
       __last.soldRows.forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
       return _downloadCSV(`MURTEDE_TopSold_${tag}.csv`, rows);
     }
-    if(kind==='returns_refunds'){
-      const rows = [['Type','Rank','Product','Qty']];
-      __last.retRows.forEach((r,i)=>rows.push(['RETURNS', i+1, r.product, r.qty]));
-      (__last.refundRows||[]).forEach((r,i)=>rows.push(['REFUNDS', i+1, r.product, r.qty]));
-      return _downloadCSV(`MURTEDE_Returns_Refunds_${tag}.csv`, rows);
+    if(kind==='returns'){
+      const rows = [['Rank','Product','Qty']];
+      __last.retRows.forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
+      return _downloadCSV(`MURTEDE_TopReturns_${tag}.csv`, rows);
+    }
+    if(kind==='refunds'){
+      const rows = [['Rank','Product','Qty']];
+      (__last.refundRows||[]).forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
+      return _downloadCSV(`MURTEDE_TopRefunds_${tag}.csv`, rows);
     }
 
     if(kind==='carriers'){
