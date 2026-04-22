@@ -251,7 +251,7 @@
   </div>
 
   <div id="tab-ret" class="card pad hide" style="margin-top:14px;">
-    <h3 style="margin:0 0 10px 0;">↩️ Returned products (RETURN/RETURNS)</h3>
+    <h3 style="margin:0 0 10px 0;">↩️ Returned products (RETURN/RETURNS/RETURNED)</h3>
     <div style="height:320px; margin-top:8px;"><canvas id="chart-ret"></canvas></div>
     <div style="margin:10px 0 6px 0;">
       <input type="text" id="search-ret" placeholder="🔍 Filter product…" oninput="filterTable('tbl-ret', this.value)" style="max-width:320px; padding:8px 12px; font-size:13px;" />
@@ -333,7 +333,7 @@
 
 
     <div id="tab-oprets" class="card pad hide" style="margin-top:14px;">
-    <h3 style="margin:0 0 10px 0;">↩️ Returns by operator (RETURN/RETURNS)</h3>
+    <h3 style="margin:0 0 10px 0;">↩️ Returns by operator (RETURN/RETURNS/RETURNED)</h3>
 
     <!-- Same operator→products view as PACKING (Products by operator) -->
     <div class="grid grid-3" style="margin-bottom:10px;">
@@ -959,7 +959,7 @@ window.showTab = showTab;
     el.innerHTML = [
       _kpi('Packed IDs', t.packedIds||0, 'Latest PACKING per batch+ID', 'packedIds'),
       _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING', 'packedItems'),
-      _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS records', 'returnIds'),
+      _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS/RETURNED records', 'returnIds'),
       _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records', 'prepackScans'),
       _kpi('Printed IDs', t.printedIds||0, 'From batch history', 'printedIds'),
       _kpi('OFF Items', t.offInvItems||0, 'Sum of batch history inventory (excluding WARRANTY)', 'offItems'),
@@ -1580,7 +1580,7 @@ function _renderTopTable(tbodySel, rows){
 
     const packedRecords = reg.filter(x=>x.mode==='PACKING');
     const packed = _buildLatestPackedEntries(packedRecords);
-    const returns = reg.filter(x=>x.mode==='RETURN' || x.mode==='RETURNS');
+    const returns = reg.filter(x=>x.mode==='RETURN' || x.mode==='RETURNS' || x.mode==='RETURNED');
 
     // products packed per operator (user -> {product: qty})
     const packedUserProdMap = {};
