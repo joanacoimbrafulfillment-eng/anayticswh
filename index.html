@@ -153,10 +153,12 @@
       <div class="tab" data-tab="pick" onclick="showTab('pick')">🧺 Picking</div>
       <div class="tab" data-tab="sold" onclick="showTab('sold')">🔥 Top sold</div>
       <div class="tab" data-tab="ret" onclick="showTab('ret')">↩️ Returns (all)</div>
+      <div class="tab" data-tab="refunds" onclick="showTab('refunds')">💸 Refunds (all)</div>
       <div class="tab" data-tab="ratio" onclick="showTab('ratio')">📉 Return rate</div>
       <div class="tab" data-tab="carriers" onclick="showTab('carriers')">🚚 Carriers</div>
       <div class="tab" data-tab="opprods" onclick="showTab('opprods')">📦 Products by operator</div>
       <div class="tab" data-tab="oprets" onclick="showTab('oprets')">↩️ Returns by operator</div>
+      <div class="tab" data-tab="oprefunds" onclick="showTab('oprefunds')">💸 Refunds by operator</div>
       <div class="tab" data-tab="daycar" onclick="showTab('daycar')">🗓️ Products by day & carrier</div>
       <div class="tab" data-tab="offinv" onclick="showTab('offinv')">📋 OFF lotes (SKU/QTY)</div>
       <div class="tab" data-tab="export" onclick="showTab('export')">📁 Export</div>
@@ -189,6 +191,14 @@
             <div class="muted" style="font-size:12px; margin-bottom:6px;">Returned items</div>
             <div style="height:230px;"><canvas id="chart-ret-ops-items"></canvas></div>
           </div>
+          <div style="height:260px;">
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Refund IDs</div>
+            <div style="height:230px;"><canvas id="chart-refund-ops-ids"></canvas></div>
+          </div>
+          <div style="height:260px;">
+            <div class="muted" style="font-size:12px; margin-bottom:6px;">Refunded items</div>
+            <div style="height:230px;"><canvas id="chart-refund-ops-items"></canvas></div>
+          </div>
         </div>
       </div>
     </div>
@@ -205,9 +215,12 @@
             <th>Packed Items</th>
             <th>Returns IDs</th>
             <th>Returned Items</th>
+            <th>Refunds IDs</th>
+            <th>Refunded Items</th>
             <th>Pre-pack Scans</th>
             <th>Avg. pack time</th>
             <th>Avg. return time</th>
+            <th>Avg. refund time</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -258,6 +271,20 @@
     </div>
     <div class="scroll">
       <table id="tbl-ret">
+        <thead><tr><th>#</th><th>Produto</th><th>Qtd</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="tab-refunds" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">💸 Refunded products (REFUND/REFUNDS/REFUNDED)</h3>
+    <div style="height:320px; margin-top:8px;"><canvas id="chart-refunds"></canvas></div>
+    <div style="margin:10px 0 6px 0;">
+      <input type="text" id="search-refunds" placeholder="🔍 Filter product…" oninput="filterTable('tbl-refunds', this.value)" style="max-width:320px; padding:8px 12px; font-size:13px;" />
+    </div>
+    <div class="scroll">
+      <table id="tbl-refunds">
         <thead><tr><th>#</th><th>Produto</th><th>Qtd</th></tr></thead>
         <tbody></tbody>
       </table>
@@ -388,6 +415,60 @@
     </details>
   </div>
 
+  <div id="tab-oprefunds" class="card pad hide" style="margin-top:14px;">
+    <h3 style="margin:0 0 10px 0;">💸 Refunds by operator (REFUND/REFUNDS/REFUNDED)</h3>
+
+    <div class="grid grid-3" style="margin-bottom:10px;">
+      <div>
+        <label>Operator</label>
+        <select id="sel-oprefunds" onchange="renderOperatorRefunds()"></select>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <button class="btn secondary" onclick="exportCSV('oprefunds_products')">Export CSV (operator×refunded product)</button>
+      </div>
+      <div>
+        <label>&nbsp;</label>
+        <span class="muted" style="font-size:12px;">Counts items inside REFUND/REFUNDS (excluding WARRANTY products).</span>
+      </div>
+    </div>
+
+    <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+      <b>Refunded products (qty)</b>
+      <div style="height:240px; margin-top:10px;"><canvas id="chart-oprefunds-prods"></canvas></div>
+      <div class="scroll" style="margin-top:10px;">
+        <table id="tbl-oprefunds-prods">
+          <thead><tr><th>#</th><th>Product</th><th>Qty</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <details style="margin-top:12px;">
+      <summary class="muted" style="cursor:pointer; font-weight:650;">Show refunded IDs (items)</summary>
+
+      <div class="grid grid-3" style="margin-top:10px; margin-bottom:10px;">
+        <div></div>
+        <div></div>
+        <div>
+          <button class="btn secondary" onclick="exportCSV('oprefunds_ids')">Export CSV (operator×refunded id)</button>
+        </div>
+      </div>
+
+      <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <b>Refunded IDs (items)</b>
+        <div class="muted" style="font-size:12px; margin-top:6px;">Items = number of non-WARRANTY products in REFUND/REFUNDS for the ID.</div>
+        <div style="height:240px; margin-top:10px;"><canvas id="chart-oprefunds-ids"></canvas></div>
+        <div class="scroll" style="margin-top:10px;">
+          <table id="tbl-oprefunds-ids">
+            <thead><tr><th>#</th><th>ID</th><th>Items</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  </div>
+
   <div id="tab-daycar" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">🗓️ Products created in batch (IDs) by day & carrier</h3>
 
@@ -471,12 +552,14 @@
           <button class="btn secondary" onclick="exportCSV('performance')">Performance</button>
           <button class="btn secondary" onclick="exportCSV('picking')">Picking</button>
           <button class="btn secondary" onclick="exportCSV('sold')">Top sold</button>
-          <button class="btn secondary" onclick="exportCSV('returns')">Returns (all)</button>
+          <button class="btn secondary" onclick="exportCSV('returns_refunds')">Returns + Refunds (all)</button>
           <button class="btn secondary" onclick="exportCSV('ratio')">Return rate</button>
           <button class="btn secondary" onclick="exportCSV('carriers')">Carriers (printed)</button>
           <button class="btn secondary" onclick="exportCSV('opproducts')">Products by operator</button>
           <button class="btn secondary" onclick="exportCSV('opreturns_products')">Returns by operator (products)</button>
           <button class="btn secondary" onclick="exportCSV('opreturns_ids')">Returns by operator (IDs)</button>
+          <button class="btn secondary" onclick="exportCSV('oprefunds_products')">Refunds by operator (products)</button>
+          <button class="btn secondary" onclick="exportCSV('oprefunds_ids')">Refunds by operator (IDs)</button>
           <button class="btn secondary" onclick="exportCSV('daycarrier')">Products by day &amp; carrier</button>
           <button class="btn secondary" onclick="exportCSV('offinv')">OFF batches (SKU/QTY)</button>
         </div>
@@ -489,7 +572,7 @@
       <div class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
         <b>Notes</b>
         <ul class="muted" style="margin:8px 0 0 18px; line-height:1.55;">
-          <li>PACKING and RETURNS come from <code>registos</code> (with <code>dateClean</code>, <code>user</code>, <code>prods</code>, <code>startTime</code>/<code>endTime</code>).</li>
+          <li>PACKING, RETURNS and REFUNDS come from <code>registos</code> (with <code>dateClean</code>, <code>user</code>, <code>prods</code>, <code>startTime</code>/<code>endTime</code>).</li>
           <li>Pre-pack comes from <code>pre_packing</code> (each record = 1 product scan).</li>
           <li>For large ranges, the dashboard runs one query per day (more stable than scanning the entire DB).</li>
         </ul>
@@ -536,11 +619,14 @@
     pickRows: [],
     soldRows: [],
     retRows: [],
+    refundRows: [],
     ratioRows: [],
     carrierRows: [],
     opProductsMap: {},
     opReturnsProductsMap: {},
     opReturnsIdsMap: {},
+    opRefundsProductsMap: {},
+    opRefundsIdsMap: {},
     dayCarrierProdMap: {},
     totals: {}
   };
@@ -725,7 +811,7 @@
   // -------- Export All --------
   async function exportAll(){
     if(!__last || !__last.range || !__last.range.start) return alert('Run analysis first.');
-    const kinds = ['performance','picking','sold','returns','ratio','carriers','opproducts','opreturns_products','opreturns_ids','daycarrier','offinv'];
+    const kinds = ['performance','picking','sold','returns_refunds','ratio','carriers','opproducts','opreturns_products','opreturns_ids','oprefunds_products','oprefunds_ids','daycarrier','offinv'];
     for(const k of kinds){
       await new Promise(res => setTimeout(res, 350)); // small delay between downloads
       try{ exportCSV(k); }catch(e){ console.warn('export failed for', k, e); }
@@ -734,6 +820,8 @@
   window.exportAll = exportAll;
   function _fmt(x){ return (x===undefined||x===null) ? "" : String(x); }
 function _u(x){ return _fmt(x).trim().toUpperCase(); }
+function _isReturnMode(mode){ const m = _u(mode); return m === 'RETURN' || m === 'RETURNS' || m === 'RETURNED'; }
+function _isRefundMode(mode){ const m = _u(mode); return m === 'REFUND' || m === 'REFUNDS' || m === 'REFUNDED'; }
 
 // Products to ignore in item counts / product rankings
 const EXCLUDED_PRODUCTS = new Set(["WARRANTY ES", "WARRANTY PT"]);
@@ -960,6 +1048,7 @@ window.showTab = showTab;
       _kpi('Packed IDs', t.packedIds||0, 'Latest PACKING per batch+ID', 'packedIds'),
       _kpi('Packed Items', t.packedProducts||0, 'Items in PACKING', 'packedItems'),
       _kpi('Returns IDs', t.returnIds||0, 'RETURN/RETURNS/RETURNED records', 'returnIds'),
+      _kpi('Refunds IDs', t.refundIds||0, 'REFUND/REFUNDS/REFUNDED records', 'refundIds'),
       _kpi('Pre-pack Scans', t.prepackScans||0, 'pre_packing records', 'prepackScans'),
       _kpi('Printed IDs', t.printedIds||0, 'From batch history', 'printedIds'),
       _kpi('OFF Items', t.offInvItems||0, 'Sum of batch history inventory (excluding WARRANTY)', 'offItems'),
@@ -975,15 +1064,19 @@ window.showTab = showTab;
     tb.innerHTML = rows.map(r=>{
       const avgPack = (r.avgPackSec!=null) ? `${Math.round(r.avgPackSec)}s` : '-';
       const avgRet  = (r.avgReturnSec!=null) ? `${Math.round(r.avgReturnSec)}s` : '-';
+      const avgRefund  = (r.avgRefundSec!=null) ? `${Math.round(r.avgRefundSec)}s` : '-';
       return `<tr>
         <td><b>${_fmt(r.user)}</b></td>
         <td>${r.packedIds}</td>
         <td>${r.packedProducts}</td>
         <td>${r.returnIds}</td>
         <td>${r.returnProducts}</td>
+        <td>${r.refundIds||0}</td>
+        <td>${r.refundProducts||0}</td>
         <td>${r.prepackScans}</td>
         <td>${avgPack}</td>
         <td>${avgRet}</td>
+        <td>${avgRefund}</td>
       </tr>`;
     }).join('');
   }
@@ -1211,6 +1304,83 @@ function _renderTopTable(tbodySel, rows){
   }
   window.renderOperatorReturns = renderOperatorReturns;
 
+  // -------- Refunds by operator (REFUND/REFUNDS): products + IDs --------
+  function _initOperatorRefunds(perfRows, refundsUserProdMap, refundsUserIdMap){
+    const sel = document.getElementById('sel-oprefunds');
+    if(!sel) return;
+
+    const opsSet = new Set();
+    (perfRows||[]).forEach(r=> opsSet.add(r.user));
+    Object.keys(refundsUserProdMap||{}).forEach(u=> opsSet.add(u));
+    Object.keys(refundsUserIdMap||{}).forEach(u=> opsSet.add(u));
+
+    const ops = Array.from(opsSet).filter(Boolean).sort((a,b)=> a.localeCompare(b));
+    sel.innerHTML = ops.map(u=>`<option value="${u}">${u}</option>`).join('');
+    sel.value = ops.length ? ops[0] : '';
+
+    window.__refundsUserProdMap = refundsUserProdMap || {};
+    window.__refundsUserIdMap = refundsUserIdMap || {};
+    renderOperatorRefunds();
+  }
+
+  function renderOperatorRefunds(){
+    const sel = document.getElementById('sel-oprefunds');
+    const tbProds = document.querySelector('#tbl-oprefunds-prods tbody');
+    const tbIds = document.querySelector('#tbl-oprefunds-ids tbody');
+    if(!sel || !tbProds || !tbIds) return;
+
+    const u = sel.value;
+
+    const mp = (window.__refundsUserProdMap && window.__refundsUserProdMap[u]) ? window.__refundsUserProdMap[u] : {};
+    const prodRows = Object.entries(mp)
+      .map(([product,qty])=>({product, qty}))
+      .sort((a,b)=> b.qty - a.qty)
+      .slice(0, 300);
+
+    tbProds.innerHTML = prodRows.length
+      ? prodRows.map((r,i)=> `<tr><td>${i+1}</td><td><b>${_fmt(r.product)}</b></td><td>${r.qty}</td></tr>`).join('')
+      : `<tr><td colspan="3" class="muted">No REFUND/REFUNDS products for this operator in the selected range.</td></tr>`;
+
+    const idMap = (window.__refundsUserIdMap && window.__refundsUserIdMap[u]) ? window.__refundsUserIdMap[u] : {};
+    const idRows = Object.entries(idMap)
+      .map(([id,items])=>({id, items}))
+      .sort((a,b)=> (b.items - a.items) || a.id.localeCompare(b.id))
+      .slice(0, 500);
+
+    tbIds.innerHTML = idRows.length
+      ? idRows.map((r,i)=> `<tr><td>${i+1}</td><td><b>${_fmt(r.id)}</b></td><td>${r.items}</td></tr>`).join('')
+      : `<tr><td colspan="3" class="muted">No REFUND/REFUNDS IDs for this operator in the selected range.</td></tr>`;
+
+    _renderOperatorRefundCharts(prodRows, idRows);
+  }
+  window.renderOperatorRefunds = renderOperatorRefunds;
+
+
+  function _renderOperatorRefundCharts(prodRows, idRows){
+    if(typeof Chart === 'undefined') return;
+
+    const topProds = (prodRows||[]).slice(0, 15);
+    _destroyChart('opRefundProds');
+    if(document.getElementById('chart-oprefunds-prods')){
+      __charts.opRefundProds = _mkBarChart(
+        'chart-oprefunds-prods',
+        topProds.map(r=>r.product),
+        topProds.map(r=>r.qty),
+        'Qty refunded'
+      );
+    }
+
+    const topIds = (idRows||[]).slice(0, 15);
+    _destroyChart('opRefundIds');
+    if(document.getElementById('chart-oprefunds-ids')){
+      __charts.opRefundIds = _mkBarChart(
+        'chart-oprefunds-ids',
+        topIds.map(r=>r.id),
+        topIds.map(r=>r.items),
+        'Refunded items'
+      );
+    }
+  }
 
   function _renderOperatorReturnsCharts(prodRows, idRows){
     if(typeof Chart === 'undefined') return;
@@ -1585,7 +1755,8 @@ function _renderTopTable(tbodySel, rows){
 
     const packedRecords = reg.filter(x=>x.mode==='PACKING');
     const packed = _buildLatestPackedEntries(packedRecords);
-    const returns = reg.filter(x=>x.mode==='RETURN' || x.mode==='RETURNS' || x.mode==='RETURNED');
+    const returns = reg.filter(x=>_isReturnMode(x.mode));
+    const refunds = reg.filter(x=>_isRefundMode(x.mode));
 
     // products packed per operator (user -> {product: qty})
     const packedUserProdMap = {};
@@ -1606,15 +1777,30 @@ function _renderTopTable(tbodySel, rows){
       if(!returnsUserProdMap[u]) returnsUserProdMap[u] = {};
       if(!returnsUserIdMap[u]) returnsUserIdMap[u] = {};
 
-      // products (excluding WARRANTY)
       _splitProducts(x.prods).forEach(p=>{
         returnsUserProdMap[u][p] = (returnsUserProdMap[u][p] || 0) + 1;
       });
 
-      // IDs: sum items (excluding WARRANTY) per ID
       const keyId = String(x.id||'').trim();
       if(keyId){
         returnsUserIdMap[u][keyId] = (returnsUserIdMap[u][keyId] || 0) + _countProducts(x.prods);
+      }
+    });
+
+    const refundsUserProdMap = {}; // user -> {product: qty}
+    const refundsUserIdMap = {};   // user -> {id: items}
+    refunds.forEach(x=>{
+      const u = x.user || 'UNKNOWN';
+      if(!refundsUserProdMap[u]) refundsUserProdMap[u] = {};
+      if(!refundsUserIdMap[u]) refundsUserIdMap[u] = {};
+
+      _splitProducts(x.prods).forEach(p=>{
+        refundsUserProdMap[u][p] = (refundsUserProdMap[u][p] || 0) + 1;
+      });
+
+      const keyId = String(x.id||'').trim();
+      if(keyId){
+        refundsUserIdMap[u][keyId] = (refundsUserIdMap[u][keyId] || 0) + _countProducts(x.prods);
       }
     });
 
@@ -1635,15 +1821,17 @@ function _renderTopTable(tbodySel, rows){
     const totals = {
       packedIds: packed.length,
       returnIds: returns.length,
+      refundIds: refunds.length,
       packedProducts: packed.reduce((a,x)=>a+_countProducts(x.prods),0),
       returnProducts: returns.reduce((a,x)=>a+_countProducts(x.prods),0),
+      refundProducts: refunds.reduce((a,x)=>a+_countProducts(x.prods),0),
       prepackScans: pp.length
     };
 
     // performance per user
     const byU = {};
     function ensure(u){
-      if(!byU[u]) byU[u] = {user:u, packedIds:0, packedProducts:0, returnIds:0, returnProducts:0, prepackScans:0, packSecSum:0, packSecN:0, returnSecSum:0, returnSecN:0};
+      if(!byU[u]) byU[u] = {user:u, packedIds:0, packedProducts:0, returnIds:0, returnProducts:0, refundIds:0, refundProducts:0, prepackScans:0, packSecSum:0, packSecN:0, returnSecSum:0, returnSecN:0, refundSecSum:0, refundSecN:0};
       return byU[u];
     }
 
@@ -1680,24 +1868,46 @@ function _renderTopTable(tbodySel, rows){
 
       let dt = null;
 
-      // Prefer numeric timestamps when available (milliseconds since epoch)
       if(Number.isFinite(x.startTs) && Number.isFinite(x.endTs)){
         dt = (x.endTs - x.startTs) / 1000;
       } else {
-        // Fallback to HH:MM(:SS) strings
         const st = _parseTimeToSec(x.startTime);
         const et = _parseTimeToSec(x.endTime);
         if(st!=null && et!=null){
           dt = et - st;
-          if(dt < 0) dt += 24*3600; // rollover safe
+          if(dt < 0) dt += 24*3600;
         }
       }
 
-      if(dt!=null && dt>=0 && dt<= 4*3600){ // guard: ignore insane durations
+      if(dt!=null && dt>=0 && dt<= 4*3600){
         r.returnSecSum += dt;
         r.returnSecN += 1;
       }
 
+    });
+
+    refunds.forEach(x=>{
+      const r = ensure(x.user);
+      r.refundIds++;
+      r.refundProducts += _countProducts(x.prods);
+
+      let dt = null;
+
+      if(Number.isFinite(x.startTs) && Number.isFinite(x.endTs)){
+        dt = (x.endTs - x.startTs) / 1000;
+      } else {
+        const st = _parseTimeToSec(x.startTime);
+        const et = _parseTimeToSec(x.endTime);
+        if(st!=null && et!=null){
+          dt = et - st;
+          if(dt < 0) dt += 24*3600;
+        }
+      }
+
+      if(dt!=null && dt>=0 && dt<= 4*3600){
+        r.refundSecSum += dt;
+        r.refundSecN += 1;
+      }
     });
 
     pp.forEach(x=>{
@@ -1708,7 +1918,8 @@ function _renderTopTable(tbodySel, rows){
       .map(r=>({
         ...r,
         avgPackSec: r.packSecN ? (r.packSecSum / r.packSecN) : null,
-        avgReturnSec: r.returnSecN ? (r.returnSecSum / r.returnSecN) : null
+        avgReturnSec: r.returnSecN ? (r.returnSecSum / r.returnSecN) : null,
+        avgRefundSec: r.refundSecN ? (r.refundSecSum / r.refundSecN) : null
       }))
       .sort((a,b)=> (b.packedIds - a.packedIds) || a.user.localeCompare(b.user));
 
@@ -1718,6 +1929,9 @@ function _renderTopTable(tbodySel, rows){
 
     // init returns-by-operator tab
     _initOperatorReturns(perfRows, returnsUserProdMap, returnsUserIdMap);
+
+    // init refunds-by-operator tab
+    _initOperatorRefunds(perfRows, refundsUserProdMap, refundsUserIdMap);
 
     // top sold products
     const soldMap = {};
@@ -1735,6 +1949,15 @@ function _renderTopTable(tbodySel, rows){
       _splitProducts(x.prods).forEach(p=>{ retMap[p] = (retMap[p]||0) + 1; });
     });
     const retRows = Object.entries(retMap)
+      .map(([product,qty])=>({product,qty}))
+      .sort((a,b)=>b.qty-a.qty)
+      ;
+
+    const refundMap = {};
+    refunds.forEach(x=>{
+      _splitProducts(x.prods).forEach(p=>{ refundMap[p] = (refundMap[p]||0) + 1; });
+    });
+    const refundRows = Object.entries(refundMap)
       .map(([product,qty])=>({product,qty}))
       .sort((a,b)=>b.qty-a.qty)
       ;
@@ -1934,10 +2157,11 @@ _renderPerfRows(perfRows);
 _renderPickRows(pickRows);
 _renderTopTable('#tbl-sold tbody', soldRows.slice(0,50));
 _renderTopTable('#tbl-ret tbody', retRows);
+_renderTopTable('#tbl-refunds tbody', refundRows);
 _renderRatio(ratioRows.slice(0,100));
 _renderCarriers(carrierRows);
 
-_renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, carrierRows});
+_renderCharts({days, packed, returns, refunds, perfRows, soldRows, retRows, refundRows, ratioRows, carrierRows});
 
   __last = {
     range:{start:s,end:e},
@@ -1945,24 +2169,28 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
     pickRows,
     soldRows,
     retRows,
+    refundRows,
     ratioRows,
     carrierRows,
     opProductsMap: packedUserProdMap,
     opReturnsProductsMap: returnsUserProdMap,
     opReturnsIdsMap: returnsUserIdMap,
+    opRefundsProductsMap: refundsUserProdMap,
+    opRefundsIdsMap: refundsUserIdMap,
     dayCarrierProdMap: (window.__dayCarrierProdMap || {}),
     offInvMap: (window.__offInvMap || {}),
     totals,
     rawPacked: packed,
     rawPackingRecords: packedRecords,
     rawReturns: returns,
+    rawRefunds: refunds,
     rawPP: pp,
     rawBatches: (typeof bObj !== 'undefined') ? bObj : {}
   };
 
   const archivedNote = __archivedBatchesReadable ? ' • batch history ON' : ' • batch history unavailable';
   const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
-  _setStatus(`OK • ${s} → ${e} • ${totals.packedIds} PACKED IDs • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
+  _setStatus(`OK • ${s} → ${e} • ${totals.packedIds} PACKED IDs • ${returns.length} RETURNS • ${refunds.length} REFUNDS${archivedNote}${cacheNote}`);
 } 
 
 window.runAnalytics = runAnalytics;
@@ -2033,6 +2261,20 @@ window.runAnalytics = runAnalytics;
           <td style="font-size:11px;color:var(--muted);">${_fmt(r.prods).replace(/\|/g,' · ')}</td>
         </tr>`);
       html = _tbl(['Date','ID','Operator','Time','Items','Products'], rows, 'No RETURN records.');
+
+    } else if(key === 'refundIds'){
+      label = `Refunds IDs (${(__last.rawRefunds||[]).length})`;
+      const rows = (__last.rawRefunds||[])
+        .slice().sort((a,b)=> (b.dateClean||'').localeCompare(a.dateClean||'') || (b.startTime||'').localeCompare(a.startTime||''))
+        .map(r=>`<tr>
+          <td>${r.dateClean||''}</td>
+          <td><b>${r.id||'-'}</b></td>
+          <td>${r.user||'-'}</td>
+          <td>${r.startTime||'-'}</td>
+          <td>${_countProducts(r.prods)}</td>
+          <td style="font-size:11px;color:var(--muted);">${_fmt(r.prods).replace(/\|/g,' · ')}</td>
+        </tr>`);
+      html = _tbl(['Date','ID','Operator','Time','Items','Products'], rows, 'No REFUND records.');
 
     } else if(key === 'prepackScans'){
       label = `Pre-pack Scans (${(__last.rawPP||[]).length})`;
@@ -2106,7 +2348,7 @@ window.runAnalytics = runAnalytics;
   window.openKpiDrill = openKpiDrill;
 
   // ---------- Charts (Chart.js) ----------
-  const __charts = {trend:null, opsIds:null, opsItems:null, retOpsIds:null, retOpsItems:null, sold:null, ret:null, ratio:null, carrierPrinted:null, opRetProds:null, opRetIds:null};
+  const __charts = {trend:null, opsIds:null, opsItems:null, retOpsIds:null, retOpsItems:null, refundOpsIds:null, refundOpsItems:null, sold:null, ret:null, refunds:null, ratio:null, carrierPrinted:null, opRetProds:null, opRetIds:null, opRefundProds:null, opRefundIds:null};
 
   function _destroyChart(key){
     const c = __charts[key];
@@ -2138,14 +2380,16 @@ window.runAnalytics = runAnalytics;
     });
   }
 
-  function _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, carrierRows}){
+  function _renderCharts({days, packed, returns, refunds, perfRows, soldRows, retRows, refundRows, ratioRows, carrierRows}){
     if(typeof Chart === 'undefined') return; // CDN not reachable
 
     // Trend (daily PACKING vs RETURNS)
     const packByDay = Object.fromEntries(days.map(d=>[d,0]));
     const retByDay  = Object.fromEntries(days.map(d=>[d,0]));
+    const refundByDay  = Object.fromEntries(days.map(d=>[d,0]));
     packed.forEach(x=>{ if(packByDay[x.dateClean] !== undefined) packByDay[x.dateClean]++; });
     returns.forEach(x=>{ if(retByDay[x.dateClean] !== undefined) retByDay[x.dateClean]++; });
+    (refunds||[]).forEach(x=>{ if(refundByDay[x.dateClean] !== undefined) refundByDay[x.dateClean]++; });
 
     _destroyChart('trend');
     const trendEl = document.getElementById('chart-trend');
@@ -2156,7 +2400,8 @@ window.runAnalytics = runAnalytics;
           labels: days,
           datasets: [
             { label: 'Packed IDs', data: days.map(d=>packByDay[d]||0), tension: 0.25 },
-            { label: 'Return IDs', data: days.map(d=>retByDay[d]||0), tension: 0.25 }
+            { label: 'Return IDs', data: days.map(d=>retByDay[d]||0), tension: 0.25 },
+            { label: 'Refund IDs', data: days.map(d=>refundByDay[d]||0), tension: 0.25 }
           ]
         },
         options: {
@@ -2188,6 +2433,15 @@ window.runAnalytics = runAnalytics;
     _destroyChart('retOpsItems');
     __charts.retOpsItems = _mkBarChart('chart-ret-ops-items', topRetOpsByItems.map(r=>r.user), topRetOpsByItems.map(r=>r.returnProducts), 'Returned items');
 
+    const topRefundOpsByIds = [...(perfRows||[])].sort((a,b)=> ((b.refundIds||0) - (a.refundIds||0)) || a.user.localeCompare(b.user)).slice(0, 12);
+    const topRefundOpsByItems = [...(perfRows||[])].sort((a,b)=> ((b.refundProducts||0) - (a.refundProducts||0)) || a.user.localeCompare(b.user)).slice(0, 12);
+
+    _destroyChart('refundOpsIds');
+    __charts.refundOpsIds = _mkBarChart('chart-refund-ops-ids', topRefundOpsByIds.map(r=>r.user), topRefundOpsByIds.map(r=>r.refundIds||0), 'Refund IDs');
+
+    _destroyChart('refundOpsItems');
+    __charts.refundOpsItems = _mkBarChart('chart-refund-ops-items', topRefundOpsByItems.map(r=>r.user), topRefundOpsByItems.map(r=>r.refundProducts||0), 'Refunded items');
+
     // Top sold
     const topSold = (soldRows||[]).slice(0, 15);
     _destroyChart('sold');
@@ -2197,6 +2451,10 @@ window.runAnalytics = runAnalytics;
     const topRet = (retRows||[]).slice(0, 15);
     _destroyChart('ret');
     __charts.ret = _mkBarChart('chart-ret', topRet.map(r=>r.product), topRet.map(r=>r.qty), 'Qty returned');
+
+    const topRefund = (refundRows||[]).slice(0, 15);
+    _destroyChart('refunds');
+    __charts.refunds = _mkBarChart('chart-refunds', topRefund.map(r=>r.product), topRefund.map(r=>r.qty), 'Qty refunded');
 
     // Return rate
     const topRate = (ratioRows||[]).filter(r=>r.sold>=10).slice(0, 15);
@@ -2238,8 +2496,8 @@ window.runAnalytics = runAnalytics;
     const tag = `${__last.range.start}_to_${__last.range.end}`;
 
     if(kind==='performance'){
-      const rows = [['User','Packed_IDs','Packed_Products','Return_IDs','Return_Products','Prepack_Scans','Avg_Pack_Seconds','Avg_Return_Seconds']];
-      __last.perfRows.forEach(r=>rows.push([r.user,r.packedIds,r.packedProducts,r.returnIds,r.returnProducts,r.prepackScans, r.avgPackSec==null?'':Math.round(r.avgPackSec)]));
+      const rows = [['User','Packed_IDs','Packed_Products','Return_IDs','Return_Products','Refund_IDs','Refund_Products','Prepack_Scans','Avg_Pack_Seconds','Avg_Return_Seconds','Avg_Refund_Seconds']];
+      __last.perfRows.forEach(r=>rows.push([r.user,r.packedIds,r.packedProducts,r.returnIds,r.returnProducts,r.refundIds||0,r.refundProducts||0,r.prepackScans, r.avgPackSec==null?'':Math.round(r.avgPackSec), r.avgReturnSec==null?'':Math.round(r.avgReturnSec), r.avgRefundSec==null?'':Math.round(r.avgRefundSec)]));
       return _downloadCSV(`MURTEDE_Performance_${tag}.csv`, rows);
     }
     if(kind==='picking'){
@@ -2252,10 +2510,11 @@ window.runAnalytics = runAnalytics;
       __last.soldRows.forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
       return _downloadCSV(`MURTEDE_TopSold_${tag}.csv`, rows);
     }
-    if(kind==='returns'){
-      const rows = [['Rank','Product','Qty']];
-      __last.retRows.forEach((r,i)=>rows.push([i+1,r.product,r.qty]));
-      return _downloadCSV(`MURTEDE_TopReturns_${tag}.csv`, rows);
+    if(kind==='returns_refunds'){
+      const rows = [['Type','Rank','Product','Qty']];
+      __last.retRows.forEach((r,i)=>rows.push(['RETURNS', i+1, r.product, r.qty]));
+      (__last.refundRows||[]).forEach((r,i)=>rows.push(['REFUNDS', i+1, r.product, r.qty]));
+      return _downloadCSV(`MURTEDE_Returns_Refunds_${tag}.csv`, rows);
     }
 
     if(kind==='carriers'){
@@ -2302,6 +2561,28 @@ window.runAnalytics = runAnalytics;
           .forEach(([id,items])=> rows.push([u, id, items]));
       });
       return _downloadCSV(`MURTEDE_ReturnsIDs_ByOperator_${tag}.csv`, rows);
+    }
+
+    if(kind==='oprefunds_products'){
+      const rows = [['User','Product','Qty']];
+      const mp = (__last && __last.opRefundsProductsMap) ? __last.opRefundsProductsMap : (window.__refundsUserProdMap || {});
+      Object.keys(mp).sort().forEach(u=>{
+        Object.entries(mp[u]||{})
+          .sort((a,b)=> b[1]-a[1])
+          .forEach(([product,qty])=> rows.push([u, product, qty]));
+      });
+      return _downloadCSV(`MURTEDE_RefundsProducts_ByOperator_${tag}.csv`, rows);
+    }
+
+    if(kind==='oprefunds_ids'){
+      const rows = [['User','ID','Items']];
+      const mp = (__last && __last.opRefundsIdsMap) ? __last.opRefundsIdsMap : (window.__refundsUserIdMap || {});
+      Object.keys(mp).sort().forEach(u=>{
+        Object.entries(mp[u]||{})
+          .sort((a,b)=> (b[1]-a[1]) || String(a[0]).localeCompare(String(b[0])))
+          .forEach(([id,items])=> rows.push([u, id, items]));
+      });
+      return _downloadCSV(`MURTEDE_RefundsIDs_ByOperator_${tag}.csv`, rows);
     }
 
 
