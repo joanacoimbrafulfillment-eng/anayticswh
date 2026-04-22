@@ -218,7 +218,7 @@
   <div id="tab-pick" class="card pad hide" style="margin-top:14px;">
     <h3 style="margin:0 0 10px 0;">🧺 Picking by operator</h3>
     <div class="muted" style="font-size:12px; margin:0 0 10px 0;">
-      Based on merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) with <code>pickedBy</code>/<code>picked_by</code>.
+      Based on merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) with <code>pickedBy</code>/<code>picked_by</code>.
       IDs = expected IDs excluding cancelled; Products = inventory qty sum excluding WARRANTY ES/PT.
     </div>
     <div class="scroll">
@@ -292,7 +292,7 @@
     </div>
 
     <div style="height:320px; margin-top:8px;"><canvas id="chart-carrier-printed"></canvas></div>
-    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES). <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, etc.</p>
+    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES). <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, etc.</p>
     <div class="scroll">
       <table id="tbl-carriers">
         <thead id="tbl-carriers-head">
@@ -407,7 +407,7 @@
     </div>
 
     <div class="muted" style="font-size:12px; margin-bottom:10px;">
-      Built from merged batch history (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>) using expected IDs minus cancelled IDs, joined with the latest <code>registos</code> PACKING per <code>batch+id</code>.
+      Built from merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) using expected IDs minus cancelled IDs, joined with the latest <code>registos</code> PACKING per <code>batch+id</code>.
       Products exclude WARRANTY.
     </div>
 
@@ -434,7 +434,7 @@
       </div>
       <div>
         <label>&nbsp;</label>
-        <span class="muted" style="font-size:12px;">Fonte: inventory dos lotes no histórico completo (<code>active_batches</code> + <code>deleted_batches</code> + legacy <code>archived_batches</code>).</span>
+        <span class="muted" style="font-size:12px;">Fonte: inventory dos lotes no histórico completo (<code>active_batches</code> + <code>deleted_batches</code>).</span>
       </div>
     </div>
 
@@ -549,7 +549,7 @@
 
   // -------- Session cache (safe per-day reuse) --------
   const __TODAY_CACHE_TTL_MS = 2 * 60 * 1000; // only today is refreshed periodically
-  const __CACHE_STORAGE_KEY = 'analytics_v3_session_cache_v2';
+  const __CACHE_STORAGE_KEY = 'analytics_v3_session_cache_v3';
   const __CACHE_MAX_ENTRIES_PER_BUCKET = 45;
 
   function _emptySessionCache(){
@@ -1441,7 +1441,7 @@ function _renderTopTable(tbodySel, rows){
   // Batch history loader:
   // - active_batches     → batches still live in OFF/WH
   // - deleted_batches    → current archive used by OFF v8+
-  // - archived_batches   → legacy archive fallback (older versions)
+  
   // We always merge all 3 sources for the selected day so every analytics tab
   // keeps counting the same IDs even after a batch is archived.
   async function _loadBatchesForOneDay(dateClean){
@@ -1463,49 +1463,54 @@ function _renderTopTable(tbodySel, rows){
 
     __inflightLoads.batches[dateClean] = (async()=>{
       const merged = {};
-      const [activeRes, deletedRes, legacyRes] = await Promise.allSettled([
+      // active_batches: lotes do dia atual (ainda não arquivados)
+      // deleted_batches: lotes arquivados de manhã (dias anteriores) — fonte correta para histórico
+      // archived_batches (legado) ignorado intencionalmente: continha lotes de sistema antigo
+      // que inflacionavam os contadores vs. o OFF
+      const [activeRes, deletedRes] = await Promise.allSettled([
         db.ref('active_batches').orderByChild('dateClean').equalTo(dateClean).once('value'),
-        db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value'),
-        db.ref('archived_batches').orderByChild('dateClean').equalTo(dateClean).once('value')
+        db.ref('deleted_batches').orderByChild('dateClean').equalTo(dateClean).once('value')
       ]);
 
-      if(activeRes.status === 'fulfilled'){
-        const activeObj = activeRes.value.val() || {};
-        Object.entries(activeObj).forEach(([k,v])=>{
-          if(v) merged[k] = v;
-        });
-      }else{
-        console.warn('active_batches read failed for', dateClean, activeRes.reason);
+      // 1) Juntar active + deleted num único pool
+      const activeObj  = (activeRes.status  === 'fulfilled') ? (activeRes.value.val()  || {}) : {};
+      const deletedObj = (deletedRes.status === 'fulfilled') ? (deletedRes.value.val() || {}) : {};
+      if(activeRes.status  !== 'fulfilled') console.warn('active_batches read failed for',  dateClean, activeRes.reason);
+      if(deletedRes.status !== 'fulfilled') console.warn('deleted_batches read failed for', dateClean, deletedRes.reason);
+
+      const allPool = Object.assign({}, deletedObj, activeObj); // active tem prioridade por chave
+
+      // 2) Deduplicar por nome+data: para cada nome, guardar apenas o lote com timestamp mais alto
+      // A chave do Firebase termina sempre em _<timestamp> (ex: 20ABR16_NACEX PT_2026-04-22_1776848589147)
+      function _batchTimestamp(key){
+        const m = String(key).match(/_(\d+)$/);
+        return m ? parseInt(m[1], 10) : 0;
       }
 
-      if(legacyRes.status === 'fulfilled'){
-        const legacyObj = legacyRes.value.val() || {};
-        Object.entries(legacyObj).forEach(([k,v])=>{
-          if(!v) return;
-          if(!merged[k]) merged[k] = v;
-        });
-      }else{
-        console.warn('archived_batches read failed for', dateClean, legacyRes.reason);
-      }
-
-      if(deletedRes.status === 'fulfilled'){
-        const deletedObj = deletedRes.value.val() || {};
-        Object.entries(deletedObj).forEach(([k,v])=>{
-          if(!v) return;
+      // bestByName: nameDateKey -> { key, ts, val }
+      const bestByName = {};
+      Object.entries(allPool).forEach(([k, v]) => {
+        if(!v) return;
+        const name = (v.name || '').trim().toUpperCase();
+        const dc   = (v.dateClean || '').trim();
+        if(!name || !dc) {
+          // sem nome/data: incluir sempre (não há como deduplicar)
           merged[k] = v;
-        });
-      }else{
-        console.warn('deleted_batches read failed for', dateClean, deletedRes.reason);
-      }
+          return;
+        }
+        const nameKey = dc + '||' + name;
+        const ts = _batchTimestamp(k);
+        if(!bestByName[nameKey] || ts > bestByName[nameKey].ts){
+          bestByName[nameKey] = {key: k, ts, val: v};
+        }
+      });
 
-      if(activeRes.status === 'fulfilled'){
-        const activeObj = activeRes.value.val() || {};
-        Object.entries(activeObj).forEach(([k,v])=>{
-          if(v) merged[k] = v;
-        });
-      }
+      // 3) Só os vencedores entram no merged
+      Object.values(bestByName).forEach(({key, val}) => {
+        merged[key] = val;
+      });
 
-      const historyReadable = (deletedRes.status === 'fulfilled') || (legacyRes.status === 'fulfilled');
+      const historyReadable = (deletedRes.status === 'fulfilled');
       const payload = {merged, __archivedBatchesReadable: historyReadable};
       __archivedBatchesReadable = historyReadable;
       _setCacheEntry('batches', dateClean, payload);
@@ -1886,6 +1891,29 @@ try{
   totals.esPrintedPct = totalPrinted ? (totalPrintedES/totalPrinted) : 0;
   totals.printedIds = totalPrinted;
   totals.cancelledIds = carrierRows.reduce((a,r)=>a + (r.cancelledIds||0), 0);
+
+  // Recalcular Packed IDs a partir de processed_ids dos lotes — exactamente como o OFF overview.
+  // processed_ids é o único contador fiável: é actualizado em tempo real (hoje) e
+  // arquivado com o lote (dias anteriores em deleted_batches).
+  // Isto garante que Analytics e OFF mostram sempre o mesmo valor.
+  try{
+    const packedIdsSet = new Set(); // IDs únicos picados (igual ao OFF: packedIdsForDay)
+
+    Object.entries(bObj).forEach(([bKey, b])=>{
+      if(!b) return;
+      const dc = b.dateClean || '';
+      if(!daySet.has(dc)) return;
+      if(!b.processed_ids) return;
+
+      const requiredIds = _requiredBatchIds(b); // expected minus cancelled
+      requiredIds.forEach(id=>{
+        if(b.processed_ids[id]) packedIdsSet.add(bKey + '||' + String(id).trim());
+      });
+    });
+
+    totals.packedIds = packedIdsSet.size;
+
+  }catch(_e){ console.warn('packedIds (processed_ids) failed:', _e); }
   
   carrierRows.sort((a,b)=> (b.printedIds - a.printedIds) || a.carrier.localeCompare(b.carrier));
   
@@ -1934,7 +1962,7 @@ _renderCharts({days, packed, returns, perfRows, soldRows, retRows, ratioRows, ca
 
   const archivedNote = __archivedBatchesReadable ? ' • batch history ON' : ' • batch history unavailable';
   const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
-  _setStatus(`OK • ${s} → ${e} • ${packed.length} PACKED IDs • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
+  _setStatus(`OK • ${s} → ${e} • ${totals.packedIds} PACKED IDs • ${returns.length} RETURNS${archivedNote}${cacheNote}`);
 } 
 
 window.runAnalytics = runAnalytics;
