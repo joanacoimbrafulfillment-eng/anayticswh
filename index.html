@@ -1670,7 +1670,8 @@ function _renderTopTable(tbodySel, rows){
           merged[k] = v;
           return;
         }
-        const nameKey = dc + '||' + name;
+        const carrier = (v.carrier || '').trim().toUpperCase();
+        const nameKey = dc + '||' + name + '||' + carrier;
         const ts = _batchTimestamp(k);
         if(!bestByName[nameKey] || ts > bestByName[nameKey].ts){
           bestByName[nameKey] = {key: k, ts, val: v};
