@@ -318,22 +318,38 @@
       <span class="muted" id="carrier-view-hint" style="font-size:12px; margin-left:4px;"></span>
     </div>
 
-    <details class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px; margin-bottom:12px;">
-      <summary class="muted" style="cursor:pointer; font-weight:650;">⚙️ Carrier → country mapping</summary>
-      <p class="muted" style="font-size:12px; line-height:1.45; margin:10px 0;">
-        Uma linha por transportadora. Formato: <code>TRANSPORTADORA = PT</code>, <code>TRANSPORTADORA = ES</code> ou <code>TRANSPORTADORA = OTHER</code>.<br>
-        Exemplo: <code>CTT ES = ES</code>. Depois de guardar, corre novamente a análise automaticamente.
-      </p>
-      <textarea id="carrier-country-config" rows="9" spellcheck="false" style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; min-height:160px;"></textarea>
-      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
-        <button class="btn" onclick="saveCarrierCountryConfig()" style="font-size:12px; padding:7px 14px;">Save mapping</button>
-        <button class="btn secondary" onclick="resetCarrierCountryConfig()" style="font-size:12px; padding:7px 14px;">Reset defaults</button>
-      </div>
-      <div id="carrier-country-config-msg" class="muted" style="font-size:12px; margin-top:8px;"></div>
-    </details>
+    <div class="grid grid-2" style="gap:12px; margin-bottom:12px;">
+      <details class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <summary class="muted" style="cursor:pointer; font-weight:650;">⚙️ Carrier → country mapping</summary>
+        <p class="muted" style="font-size:12px; line-height:1.45; margin:10px 0;">
+          Uma linha por transportadora. Formato: <code>TRANSPORTADORA = PT</code>, <code>TRANSPORTADORA = ES</code> ou <code>TRANSPORTADORA = OTHER</code>.<br>
+          Exemplo: <code>CTT ES = ES</code>. Depois de guardar, corre novamente a análise automaticamente.
+        </p>
+        <textarea id="carrier-country-config" rows="9" spellcheck="false" style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; min-height:160px;"></textarea>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+          <button class="btn" onclick="saveCarrierCountryConfig()" style="font-size:12px; padding:7px 14px;">Save country mapping</button>
+          <button class="btn secondary" onclick="resetCarrierCountryConfig()" style="font-size:12px; padding:7px 14px;">Reset defaults</button>
+        </div>
+        <div id="carrier-country-config-msg" class="muted" style="font-size:12px; margin-top:8px;"></div>
+      </details>
+
+      <details class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px;">
+        <summary class="muted" style="cursor:pointer; font-weight:650;">⚙️ Carrier → family mapping</summary>
+        <p class="muted" style="font-size:12px; line-height:1.45; margin:10px 0;">
+          Uma linha por transportadora. Formato: <code>TRANSPORTADORA = FAMÍLIA</code>.<br>
+          Exemplo: <code>CTT ES = CTT</code>. Assim, <code>CTT</code>, <code>CTT ES</code> e <code>CTT ILHAS</code> aparecem juntos em <b>Carrier family</b>.
+        </p>
+        <textarea id="carrier-family-config" rows="9" spellcheck="false" style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; min-height:160px;"></textarea>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+          <button class="btn" onclick="saveCarrierFamilyConfig()" style="font-size:12px; padding:7px 14px;">Save family mapping</button>
+          <button class="btn secondary" onclick="resetCarrierFamilyConfig()" style="font-size:12px; padding:7px 14px;">Reset defaults</button>
+        </div>
+        <div id="carrier-family-config-msg" class="muted" style="font-size:12px; margin-top:8px;"></div>
+      </details>
+    </div>
 
     <div style="height:320px; margin-top:8px;"><canvas id="chart-carrier-printed"></canvas></div>
-    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES), using the editable carrier → country mapping above. <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, CTT+CTT ES+CTT ILHAS → CTT, etc.</p>
+    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES), using the editable carrier → country mapping above. <b>Family view</b>: groups carriers using the editable carrier → family mapping above, e.g. CTT + CTT ES + CTT ILHAS → CTT.</p>
     <div class="scroll">
       <table id="tbl-carriers">
         <thead id="tbl-carriers-head">
@@ -1255,8 +1271,8 @@ function _renderTopTable(tbodySel, rows){
   }
 
   // -------- Carrier family grouping --------
-  // Maps each raw carrier name → family name
-  const CARRIER_FAMILY_MAP = {
+  // Carrier → family mapping (editable in the Carriers tab)
+  const DEFAULT_CARRIER_FAMILY_MAP = {
     'NACEX':        'NACEX',
     'NACEX PT':     'NACEX',
     'CORREOS ES':   'CORREOS',
@@ -1264,12 +1280,105 @@ function _renderTopTable(tbodySel, rows){
     'CTT':          'CTT',
     'CTT ES':       'CTT',
     'CTT ILHAS':    'CTT',
-    'VASP':         'VASP',
+    'VASP':         'VASP'
   };
+  const CARRIER_FAMILY_STORAGE_KEY = 'analytics_carrier_family_map_v1';
+
+  function _normalizeCarrierFamilyName(family){
+    return _u(family);
+  }
+
+  function _getCarrierFamilyMap(){
+    try{
+      const raw = localStorage.getItem(CARRIER_FAMILY_STORAGE_KEY);
+      if(raw){
+        const parsed = JSON.parse(raw);
+        if(parsed && typeof parsed === 'object'){
+          const cleaned = {};
+          Object.keys(parsed).forEach(k=>{
+            const carrier = _u(k);
+            const family = _normalizeCarrierFamilyName(parsed[k]);
+            if(carrier && family) cleaned[carrier] = family;
+          });
+          if(Object.keys(cleaned).length) return cleaned;
+        }
+      }
+    }catch(e){ console.warn('Carrier family mapping read failed', e); }
+    return {...DEFAULT_CARRIER_FAMILY_MAP};
+  }
+
   function _carrierFamily(carrier){
     const c = _u(carrier);
-    return CARRIER_FAMILY_MAP[c] || c;
+    const mp = _getCarrierFamilyMap();
+    return mp[c] || c;
   }
+
+  function _carrierFamilyConfigText(map){
+    return Object.entries(map || _getCarrierFamilyMap())
+      .sort((a,b)=> a[0].localeCompare(b[0]))
+      .map(([carrier,family])=> `${carrier} = ${family}`)
+      .join('\n');
+  }
+
+  function _parseCarrierFamilyConfig(text){
+    const out = {};
+    const errors = [];
+    String(text || '').split(/\r?\n/).forEach((line, idx)=>{
+      const raw = line.trim();
+      if(!raw || raw.startsWith('#')) return;
+      const m = raw.match(/^(.+?)(?:=|;|:)(.+)$/);
+      if(!m){
+        errors.push(`Line ${idx+1}: use CARRIER = FAMILY`);
+        return;
+      }
+      const carrier = _u(m[1]);
+      const family = _normalizeCarrierFamilyName(m[2]);
+      if(!carrier || !family){
+        errors.push(`Line ${idx+1}: carrier and family cannot be empty`);
+        return;
+      }
+      out[carrier] = family;
+    });
+    if(errors.length) throw new Error(errors.slice(0,5).join(' | '));
+    return out;
+  }
+
+  function _setCarrierFamilyConfigMsg(msg){
+    const el = document.getElementById('carrier-family-config-msg');
+    if(el) el.textContent = msg || '';
+  }
+
+  function initCarrierFamilyConfig(){
+    const ta = document.getElementById('carrier-family-config');
+    if(!ta) return;
+    ta.value = _carrierFamilyConfigText(_getCarrierFamilyMap());
+    _setCarrierFamilyConfigMsg('Current mapping loaded. Defaults include CTT ES = CTT.');
+  }
+  window.initCarrierFamilyConfig = initCarrierFamilyConfig;
+
+  function saveCarrierFamilyConfig(){
+    const ta = document.getElementById('carrier-family-config');
+    if(!ta) return;
+    try{
+      const map = _parseCarrierFamilyConfig(ta.value);
+      if(!Object.keys(map).length) throw new Error('Mapping cannot be empty.');
+      localStorage.setItem(CARRIER_FAMILY_STORAGE_KEY, JSON.stringify(map));
+      ta.value = _carrierFamilyConfigText(map);
+      _setCarrierFamilyConfigMsg(`Saved ${Object.keys(map).length} family mappings.`);
+      if(__last && __last.range && __last.range.start) runAnalytics();
+    }catch(e){
+      _setCarrierFamilyConfigMsg('Error: ' + (e && e.message ? e.message : e));
+    }
+  }
+  window.saveCarrierFamilyConfig = saveCarrierFamilyConfig;
+
+  function resetCarrierFamilyConfig(){
+    try{ localStorage.removeItem(CARRIER_FAMILY_STORAGE_KEY); }catch(_e){}
+    initCarrierFamilyConfig();
+    _setCarrierFamilyConfigMsg('Defaults restored. CTT, CTT ES and CTT ILHAS are grouped as CTT.');
+    if(__last && __last.range && __last.range.start) runAnalytics();
+  }
+  window.resetCarrierFamilyConfig = resetCarrierFamilyConfig;
 
   // Current carriers view: 'country' | 'family'
   let __carrierView = 'country';
@@ -2753,6 +2862,7 @@ window.runAnalytics = runAnalytics;
     document.getElementById('start').value = today;
     document.getElementById('end').value = today;
     initCarrierCountryConfig();
+    initCarrierFamilyConfig();
 
     try {
         firebase.initializeApp(firebaseConfig);
