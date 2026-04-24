@@ -35,9 +35,9 @@
     .btn.secondary{background:rgba(255,255,255,.08); border-color:rgba(255,255,255,.14);}
 
     label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px;}
-    input, select{width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.12);
+    input, select, textarea{width:100%; padding:10px 12px; border-radius:12px; border:1px solid rgba(255,255,255,.12);
       background:rgba(255,255,255,.06); color:var(--text); outline:none;}
-    input:focus, select:focus{border-color:rgba(122,167,255,.55); box-shadow: 0 0 0 3px rgba(122,167,255,.16)}
+    input:focus, select:focus, textarea:focus{border-color:rgba(122,167,255,.55); box-shadow: 0 0 0 3px rgba(122,167,255,.16)}
 
     .tabs{display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;}
     .tab{padding:8px 12px; border-radius:999px; border:1px solid rgba(255,255,255,.14);
@@ -318,8 +318,22 @@
       <span class="muted" id="carrier-view-hint" style="font-size:12px; margin-left:4px;"></span>
     </div>
 
+    <details class="card pad" style="background:rgba(255,255,255,.03); border-radius:14px; margin-bottom:12px;">
+      <summary class="muted" style="cursor:pointer; font-weight:650;">⚙️ Carrier → country mapping</summary>
+      <p class="muted" style="font-size:12px; line-height:1.45; margin:10px 0;">
+        Uma linha por transportadora. Formato: <code>TRANSPORTADORA = PT</code>, <code>TRANSPORTADORA = ES</code> ou <code>TRANSPORTADORA = OTHER</code>.<br>
+        Exemplo: <code>CTT ES = ES</code>. Depois de guardar, corre novamente a análise automaticamente.
+      </p>
+      <textarea id="carrier-country-config" rows="9" spellcheck="false" style="font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:12px; min-height:160px;"></textarea>
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:10px;">
+        <button class="btn" onclick="saveCarrierCountryConfig()" style="font-size:12px; padding:7px 14px;">Save mapping</button>
+        <button class="btn secondary" onclick="resetCarrierCountryConfig()" style="font-size:12px; padding:7px 14px;">Reset defaults</button>
+      </div>
+      <div id="carrier-country-config-msg" class="muted" style="font-size:12px; margin-top:8px;"></div>
+    </details>
+
     <div style="height:320px; margin-top:8px;"><canvas id="chart-carrier-printed"></canvas></div>
-    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES). <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, etc.</p>
+    <p class="muted" style="margin-top:0;" id="carriers-note">Printed IDs from merged batch history (<code>active_batches</code> + <code>deleted_batches</code>) using expected minus cancelled IDs. <b>Country view</b>: % within each country (PT vs ES), using the editable carrier → country mapping above. <b>Family view</b>: groups NACEX+NACEX PT → NACEX, CORREOS ES+CORREOS PT → CORREOS, CTT+CTT ES+CTT ILHAS → CTT, etc.</p>
     <div class="scroll">
       <table id="tbl-carriers">
         <thead id="tbl-carriers-head">
@@ -954,16 +968,118 @@ function _dtKey(dc, tm){
   }
 
 
-  // Carrier groups by country
-  const CARRIERS_ES = new Set(['NACEX', 'CORREOS ES']);
-  const CARRIERS_PT = new Set(['CTT', 'CTT ILHAS', 'CORREOS PT', 'VASP', 'NACEX PT']);
+  // Carrier → country mapping (editable in the Carriers tab)
+  const DEFAULT_CARRIER_COUNTRY_MAP = {
+    'NACEX': 'ES',
+    'CORREOS ES': 'ES',
+    'CTT ES': 'ES',
+    'CTT': 'PT',
+    'CTT ILHAS': 'PT',
+    'CORREOS PT': 'PT',
+    'VASP': 'PT',
+    'NACEX PT': 'PT'
+  };
+  const CARRIER_COUNTRY_STORAGE_KEY = 'analytics_carrier_country_map_v1';
+
+  function _normalizeCarrierCountry(country){
+    const c = _u(country).replace(/[.]/g, '');
+    if(c === 'ES' || c === 'ESP' || c === 'ESPANHA' || c === 'SPAIN') return 'ES';
+    if(c === 'PT' || c === 'PORTUGAL') return 'PT';
+    if(c === 'OTHER' || c === 'OUTRO' || c === 'OUTROS') return 'OTHER';
+    return '';
+  }
+
+  function _getCarrierCountryMap(){
+    try{
+      const raw = localStorage.getItem(CARRIER_COUNTRY_STORAGE_KEY);
+      if(raw){
+        const parsed = JSON.parse(raw);
+        if(parsed && typeof parsed === 'object'){
+          const cleaned = {};
+          Object.keys(parsed).forEach(k=>{
+            const carrier = _u(k);
+            const country = _normalizeCarrierCountry(parsed[k]);
+            if(carrier && country) cleaned[carrier] = country;
+          });
+          if(Object.keys(cleaned).length) return cleaned;
+        }
+      }
+    }catch(e){ console.warn('Carrier country mapping read failed', e); }
+    return {...DEFAULT_CARRIER_COUNTRY_MAP};
+  }
 
   function _carrierCountry(carrier){
     const c = _u(carrier);
-    if(CARRIERS_ES.has(c)) return 'ES';
-    if(CARRIERS_PT.has(c)) return 'PT';
-    return 'OTHER';
+    const mp = _getCarrierCountryMap();
+    return mp[c] || 'OTHER';
   }
+
+  function _carrierCountryConfigText(map){
+    return Object.entries(map || _getCarrierCountryMap())
+      .sort((a,b)=> a[0].localeCompare(b[0]))
+      .map(([carrier,country])=> `${carrier} = ${country}`)
+      .join('\n');
+  }
+
+  function _parseCarrierCountryConfig(text){
+    const out = {};
+    const errors = [];
+    String(text || '').split(/\r?\n/).forEach((line, idx)=>{
+      const raw = line.trim();
+      if(!raw || raw.startsWith('#')) return;
+      const m = raw.match(/^(.+?)(?:=|;|:)(.+)$/);
+      if(!m){
+        errors.push(`Line ${idx+1}: use NAME = PT/ES/OTHER`);
+        return;
+      }
+      const carrier = _u(m[1]);
+      const country = _normalizeCarrierCountry(m[2]);
+      if(!carrier || !country){
+        errors.push(`Line ${idx+1}: invalid country (use PT, ES or OTHER)`);
+        return;
+      }
+      out[carrier] = country;
+    });
+    if(errors.length) throw new Error(errors.slice(0,5).join(' | '));
+    return out;
+  }
+
+  function _setCarrierCountryConfigMsg(msg){
+    const el = document.getElementById('carrier-country-config-msg');
+    if(el) el.textContent = msg || '';
+  }
+
+  function initCarrierCountryConfig(){
+    const ta = document.getElementById('carrier-country-config');
+    if(!ta) return;
+    ta.value = _carrierCountryConfigText(_getCarrierCountryMap());
+    _setCarrierCountryConfigMsg('Current mapping loaded. Defaults include CTT ES = ES.');
+  }
+  window.initCarrierCountryConfig = initCarrierCountryConfig;
+
+  function saveCarrierCountryConfig(){
+    const ta = document.getElementById('carrier-country-config');
+    if(!ta) return;
+    try{
+      const map = _parseCarrierCountryConfig(ta.value);
+      if(!Object.keys(map).length) throw new Error('Mapping cannot be empty.');
+      localStorage.setItem(CARRIER_COUNTRY_STORAGE_KEY, JSON.stringify(map));
+      ta.value = _carrierCountryConfigText(map);
+      _setCarrierCountryConfigMsg(`Saved ${Object.keys(map).length} carrier mappings.`);
+      if(__last && __last.range && __last.range.start) runAnalytics();
+    }catch(e){
+      _setCarrierCountryConfigMsg('Error: ' + (e && e.message ? e.message : e));
+    }
+  }
+  window.saveCarrierCountryConfig = saveCarrierCountryConfig;
+
+  function resetCarrierCountryConfig(){
+    try{ localStorage.removeItem(CARRIER_COUNTRY_STORAGE_KEY); }catch(_e){}
+    initCarrierCountryConfig();
+    _setCarrierCountryConfigMsg('Defaults restored. CTT ES is set to ES.');
+    if(__last && __last.range && __last.range.start) runAnalytics();
+  }
+  window.resetCarrierCountryConfig = resetCarrierCountryConfig;
 
 
  function _dateListInclusive(startISO, endISO){
@@ -1146,6 +1262,7 @@ function _renderTopTable(tbodySel, rows){
     'CORREOS ES':   'CORREOS',
     'CORREOS PT':   'CORREOS',
     'CTT':          'CTT',
+    'CTT ES':       'CTT',
     'CTT ILHAS':    'CTT',
     'VASP':         'VASP',
   };
@@ -2635,6 +2752,7 @@ window.runAnalytics = runAnalytics;
     const today = _nowISO();
     document.getElementById('start').value = today;
     document.getElementById('end').value = today;
+    initCarrierCountryConfig();
 
     try {
         firebase.initializeApp(firebaseConfig);
