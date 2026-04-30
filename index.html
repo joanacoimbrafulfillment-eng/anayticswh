@@ -666,7 +666,7 @@
 
   // -------- Session cache (safe per-day reuse) --------
   const __TODAY_CACHE_TTL_MS = 2 * 60 * 1000; // only today is refreshed periodically
-  const __CACHE_STORAGE_KEY = 'analytics_v3_session_cache_v3';
+  const __CACHE_STORAGE_KEY = 'analytics_v3_session_cache_v4';
   const __CACHE_MAX_ENTRIES_PER_BUCKET = 45;
 
   function _emptySessionCache(){
@@ -1809,13 +1809,16 @@ function _renderTopTable(tbodySel, rows){
     __runCacheStats.dayMisses += 1;
 
     __inflightLoads.days[dateClean] = (async()=>{
-      // Mesma estratégia do OFF: query por dateClean para evitar varrer a DB toda
-      const [regSnap, ppSnap] = await Promise.all([
+      // Query por dateClean E por date em paralelo para apanhar todos os registos do dia,
+      // independentemente do campo preenchido (registos antigos podem usar 'date' em vez de 'dateClean')
+      const [regByDateClean, regByDate, ppSnap] = await Promise.all([
         db.ref('registos').orderByChild('dateClean').equalTo(dateClean).once('value'),
+        db.ref('registos').orderByChild('date').equalTo(dateClean).once('value'),
         db.ref('pre_packing').orderByChild('dateClean').equalTo(dateClean).once('value')
       ]);
 
-      const regObj = regSnap.val() || {};
+      // Fundir os dois resultados por chave Firebase (evita duplicados)
+      const regObj = Object.assign({}, regByDate.val() || {}, regByDateClean.val() || {});
       const ppObj  = ppSnap.val() || {};
 
       const data = {
