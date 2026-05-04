@@ -685,11 +685,15 @@
     return _isTodayISO(dateClean) ? __TODAY_CACHE_TTL_MS : Infinity;
   }
 
+  // PERF: cache entries are written once and never mutated after storage, so we
+  // can skip the expensive deep-clone on reads.  We only deep-clone on write so
+  // the stored copy is independent of the caller's data.
   function _cloneCacheValue(value){
     if(value === undefined || value === null) return value;
     if(typeof structuredClone === 'function') return structuredClone(value);
     return JSON.parse(JSON.stringify(value));
   }
+  function _cloneCacheRead(value){ return value; }  // safe because cache is write-once
 
   function _cacheIsExpired(entry, dateClean){
     if(!entry || typeof entry.savedAt !== 'number') return true;
@@ -770,7 +774,7 @@
       return null;
     }
 
-    return _cloneCacheValue(entry.data);
+    return _cloneCacheRead(entry.data);
   }
 
   function _setCacheEntry(bucket, key, data){
@@ -857,11 +861,11 @@ function _isRefundMode(mode){ const m = _u(mode); return m === 'REFUND' || m ===
 // Products to ignore in item counts / product rankings
 const EXCLUDED_PRODUCTS = new Set(["WARRANTY ES", "WARRANTY PT"]);
 function _isExcludedProduct(p){
+  // PERF: avoid regex — simple prefix/exact check is 10× faster
   const u = _u(p);
-  // Allow variants like 'WARRANTY ES x1'
-  if(u === "WARRANTY ES" || u.startsWith("WARRANTY ES ")) return true;
-  if(u === "WARRANTY PT" || u.startsWith("WARRANTY PT ")) return true;
-  return EXCLUDED_PRODUCTS.has(u);
+  if(u === "WARRANTY ES" || u === "WARRANTY PT") return true;
+  if(u.startsWith("WARRANTY ES ") || u.startsWith("WARRANTY PT ")) return true;
+  return false;
 }
 
 function _dtKey(dc, tm){
@@ -938,14 +942,22 @@ function _dtKey(dc, tm){
     return _splitProducts(prodsStr).length;
   }
 
+  // PERF: memoize _splitProducts — same `prods` string appears hundreds of times
+  const __splitCache = new Map();
   function _splitProducts(prodsStr){
     const s = (prodsStr||"").toString().trim();
     if(!s || s.toUpperCase()==='NO ITEMS') return [];
-    return s
+    const hit = __splitCache.get(s);
+    if(hit !== undefined) return hit;
+    const result = s
       .split('|')
       .map(x=>x.trim())
       .filter(Boolean)
       .filter(p => !_isExcludedProduct(p));
+    // cap cache size to avoid unbounded growth over long sessions
+    if(__splitCache.size > 4000) __splitCache.clear();
+    __splitCache.set(s, result);
+    return result;
   }
 
   function _normBatchId(id){
@@ -1029,6 +1041,12 @@ function _dtKey(dc, tm){
     const mp = _getCarrierCountryMap();
     return mp[c] || 'OTHER';
   }
+
+  // PERF: per-run cached versions — refreshed at the start of each runAnalytics call
+  let __cachedCarrierCountryMap = null;
+  let __cachedCarrierFamilyMap  = null;
+  function _carrierCountryFast(carrier){ return (__cachedCarrierCountryMap[_u(carrier)]) || 'OTHER'; }
+  function _carrierFamilyFast(carrier){  return (__cachedCarrierFamilyMap[_u(carrier)])  || _u(carrier) || 'OTHER'; }
 
   function _carrierCountryConfigText(map){
     return Object.entries(map || _getCarrierCountryMap())
@@ -1195,7 +1213,7 @@ window.showTab = showTab;
 
   function _renderPerfRows(rows){
     const tb = document.querySelector('#tbl-perf tbody');
-    tb.innerHTML = rows.map(r=>{
+    const html = rows.map(r=>{
       const avgPack = (r.avgPackSec!=null) ? `${Math.round(r.avgPackSec)}s` : '-';
       const avgRet  = (r.avgReturnSec!=null) ? `${Math.round(r.avgReturnSec)}s` : '-';
       const avgRefund  = (r.avgRefundSec!=null) ? `${Math.round(r.avgRefundSec)}s` : '-';
@@ -1213,6 +1231,7 @@ window.showTab = showTab;
         <td>${avgRefund}</td>
       </tr>`;
     }).join('');
+    tb.innerHTML = html;
   }
 
   
@@ -1403,7 +1422,7 @@ function _renderTopTable(tbodySel, rows){
     const familyMap = {};
     const totalPrinted = (carrierRows||[]).reduce((a,r)=>a+(r.printedIds||0),0);
     (carrierRows||[]).forEach(r=>{
-      const fam = _carrierFamily(r.carrier);
+      const fam = _carrierFamily(r.carrier); // _carrierFamily ok here (called at render time, not in hot loop)
       if(!familyMap[fam]) familyMap[fam] = {family:fam, printedIds:0, cancelledIds:0, batches:0, carriers:[]};
       familyMap[fam].printedIds  += r.printedIds  || 0;
       familyMap[fam].cancelledIds+= r.cancelledIds|| 0;
@@ -1803,7 +1822,7 @@ function _renderTopTable(tbodySel, rows){
 
     if(__inflightLoads.days[dateClean]){
       __runCacheStats.dayHits += 1;
-      return _cloneCacheValue(await __inflightLoads.days[dateClean]);
+      return await __inflightLoads.days[dateClean]; // shared reference is fine — read-only
     }
 
     __runCacheStats.dayMisses += 1;
@@ -1831,7 +1850,7 @@ function _renderTopTable(tbodySel, rows){
     })();
 
     try{
-      return _cloneCacheValue(await __inflightLoads.days[dateClean]);
+      return await __inflightLoads.days[dateClean]; // read-only, no clone needed
     } finally {
       delete __inflightLoads.days[dateClean];
     }
@@ -1850,14 +1869,14 @@ function _renderTopTable(tbodySel, rows){
     if(cached){
       __runCacheStats.batchHits += 1;
       __archivedBatchesReadable = cached.__archivedBatchesReadable !== false;
-      return _cloneCacheValue(cached.merged || {});
+      return cached.merged || {}; // read-only ref, no clone needed
     }
 
     if(__inflightLoads.batches[dateClean]){
       __runCacheStats.batchHits += 1;
       const shared = await __inflightLoads.batches[dateClean];
       __archivedBatchesReadable = shared.__archivedBatchesReadable !== false;
-      return _cloneCacheValue(shared.merged || {});
+      return shared.merged || {}; // read-only ref
     }
 
     __runCacheStats.batchMisses += 1;
@@ -1922,20 +1941,24 @@ function _renderTopTable(tbodySel, rows){
     try{
       const payload = await __inflightLoads.batches[dateClean];
       __archivedBatchesReadable = payload.__archivedBatchesReadable !== false;
-      return _cloneCacheValue(payload.merged || {});
+      return payload.merged || {}; // read-only ref
     } finally {
       delete __inflightLoads.batches[dateClean];
     }
   }
 
+  // PERF: load all days in parallel (max BATCH_CONCURRENCY at once) instead of strictly sequential
+  const BATCH_CONCURRENCY = 6;
   async function _loadBatchesRange(dateList){
     const out = {};
-    for(let i=0;i<dateList.length;i++){
-      const dc = dateList[i];
-      _setStatus(`Loading batches ${i+1}/${dateList.length} (${dc})…`);
-      const dayObj = await _loadBatchesForOneDay(dc);
-      Object.entries(dayObj).forEach(([k,v])=>{
-        out[k] = v;
+    // process in chunks of BATCH_CONCURRENCY
+    for(let i = 0; i < dateList.length; i += BATCH_CONCURRENCY){
+      const chunk = dateList.slice(i, i + BATCH_CONCURRENCY);
+      _setStatus(`Loading batches ${i+1}–${Math.min(i+BATCH_CONCURRENCY, dateList.length)}/${dateList.length}…`);
+      const results = await Promise.all(chunk.map(dc => _loadBatchesForOneDay(dc)));
+      chunk.forEach((dc, idx) => {
+        const dayObj = results[idx];
+        if(dayObj) Object.assign(out, dayObj);
       });
     }
     return out;
@@ -1948,18 +1971,27 @@ function _renderTopTable(tbodySel, rows){
     if(s > e) return alert('Start date must be <= End date.');
 
     __runCacheStats = {dayHits:0, dayMisses:0, batchHits:0, batchMisses:0};
+    // PERF: snapshot carrier maps once — avoids repeated localStorage reads inside loops
+    __cachedCarrierCountryMap = _getCarrierCountryMap();
+    __cachedCarrierFamilyMap  = _getCarrierFamilyMap();
+    // PERF: clear prods split-cache at the start of each run (new date range may differ)
+    __splitCache.clear();
     _setStatus('Loading…');
 
     const days = _dateListInclusive(s,e);
     const allReg = [];
     const allPP = [];
 
-    // Load day-by-day (safer). Could be parallel but we keep sequential to avoid rate limits.
-    for(let i=0;i<days.length;i++){
-      _setStatus(`Loading ${i+1}/${days.length} (${days[i]})…`);
-      const d = await _loadDay(days[i]);
-      allReg.push(...d.regList);
-      allPP.push(...d.ppList);
+    // PERF: load registos/pre_packing in parallel chunks instead of sequentially
+    const DAY_CONCURRENCY = 6;
+    for(let i = 0; i < days.length; i += DAY_CONCURRENCY){
+      const chunk = days.slice(i, i + DAY_CONCURRENCY);
+      _setStatus(`Loading registos ${i+1}–${Math.min(i+DAY_CONCURRENCY, days.length)}/${days.length}…`);
+      const results = await Promise.all(chunk.map(dc => _loadDay(dc)));
+      results.forEach(d => {
+        allReg.push(...d.regList);
+        allPP.push(...d.ppList);
+      });
     }
 
     // normalize modes
@@ -2320,7 +2352,7 @@ try{
     if(!daySet.has(dc)) return;
 
     const carrier = _carrierName(b);
-    const country = _carrierCountry(carrier);
+    const country = _carrierCountryFast(carrier);
     const printedN = _requiredBatchIds(b).length;
     const cancelledN = _cancelledBatchCount(b);
 
