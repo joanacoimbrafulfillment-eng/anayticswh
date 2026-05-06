@@ -1809,8 +1809,21 @@ function _renderTopTable(tbodySel, rows){
     __runCacheStats.dayMisses += 1;
 
     __inflightLoads.days[dateClean] = (async()=>{
-      // Query por dateClean E por date em paralelo para apanhar todos os registos do dia,
-      // independentemente do campo preenchido (registos antigos podem usar 'date' em vez de 'dateClean')
+      // Normaliza um valor de data para YYYY-MM-DD para comparação
+      const _normDate = (raw) => {
+        if(!raw) return '';
+        const s = String(raw).trim();
+        if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+        // DD/MM/YYYY
+        const a = s.split('/');
+        if(a.length===3 && a[2].length===4) return `${a[2]}-${a[1].padStart(2,'0')}-${a[0].padStart(2,'0')}`;
+        // DD-MM-YYYY
+        const b = s.split('-');
+        if(b.length===3 && b[0].length===2) return `${b[2]}-${b[1].padStart(2,'0')}-${b[0].padStart(2,'0')}`;
+        return s;
+      };
+
+      // Query por dateClean E por date em paralelo para apanhar todos os registos do dia
       const [regByDateClean, regByDate, ppSnap] = await Promise.all([
         db.ref('registos').orderByChild('dateClean').equalTo(dateClean).once('value'),
         db.ref('registos').orderByChild('date').equalTo(dateClean).once('value'),
@@ -1820,6 +1833,22 @@ function _renderTopTable(tbodySel, rows){
       // Fundir os dois resultados por chave Firebase (evita duplicados)
       const regObj = Object.assign({}, regByDate.val() || {}, regByDateClean.val() || {});
       const ppObj  = ppSnap.val() || {};
+
+      // FIX: scan adicional por startAt/endAt para apanhar registos com dateClean
+      // em formato diferente (ex: com espaço, hora incluída, ou DD/MM/YYYY)
+      try {
+        const scanSnap = await db.ref('registos')
+          .orderByChild('dateClean')
+          .startAt(dateClean)
+          .endAt(dateClean + '\uf8ff')
+          .once('value');
+        const scanVal = scanSnap.val() || {};
+        Object.entries(scanVal).forEach(([k, v]) => {
+          if(v && _normDate(v.dateClean || v.date) === dateClean && !regObj[k]) {
+            regObj[k] = v;
+          }
+        });
+      } catch(e) { /* sem índice startAt/endAt — ignorar */ }
 
       const data = {
         regList: Object.values(regObj).filter(Boolean),
@@ -2422,7 +2451,8 @@ _renderCharts({days, packed, returns, refunds, perfRows, soldRows, retRows, refu
 
   const archivedNote = __archivedBatchesReadable ? ' • batch history ON' : ' • batch history unavailable';
   const cacheNote = ` • cache day ${__runCacheStats.dayHits}/${__runCacheStats.dayHits + __runCacheStats.dayMisses} • batches ${__runCacheStats.batchHits}/${__runCacheStats.batchHits + __runCacheStats.batchMisses}`;
-  _setStatus(`OK • ${s} → ${e} • ${totals.packedIds} PACKED IDs • ${returns.length} RETURNS • ${refunds.length} REFUNDS${archivedNote}${cacheNote}`);
+  const totalReg = allReg.length;
+  _setStatus(`OK • ${s} → ${e} • ${totals.packedIds} PACKED IDs • ${returns.length} RETURNS • ${refunds.length} REFUNDS • ${totalReg} registos raw${archivedNote}${cacheNote}`);
 } 
 
 window.runAnalytics = runAnalytics;
