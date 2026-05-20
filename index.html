@@ -554,7 +554,7 @@
         <b>Resumo por transportadora</b>
         <div class="scroll" style="margin-top:10px;">
           <table id="tbl-offinv-carriers">
-            <thead><tr><th>Carrier</th><th>Batches</th><th>SKUs</th><th>Total Qty</th></tr></thead>
+            <thead><tr><th>Carrier</th><th>Batches</th><th>SKUs</th><th>Total Qty</th><th>IDs c/ Vol.</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -1187,6 +1187,7 @@ window.showTab = showTab;
       _kpi('Printed IDs', t.printedIds||0, 'From batch history', 'printedIds'),
       _kpi('OFF Items', t.offInvItems||0, 'Sum of batch history inventory (excluding WARRANTY)', 'offItems'),
       _kpi('OFF SKUs', t.offInvSkus||0, 'Unique SKUs in batch history inventory (excluding WARRANTY)', 'offSkus'),
+      _kpi('IDs c/ Volumes', t.multiVolumeIds||0, 'IDs com volumes > 1 inseridos nos lotes OFF (informativo — não altera contadores)', 'multiVolumeIds'),
       _kpi('Cancelled IDs', t.cancelledIds||0, 'From batch history', 'cancelledIds'),
       _kpi('PT %', (t.ptPrintedPct!=null ? (t.ptPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (PT carriers)', 'ptPct'),
       _kpi('ES %', (t.esPrintedPct!=null ? (t.esPrintedPct*100).toFixed(1)+'%' : '-'), 'Share of Printed IDs (ES carriers)', 'esPct')
@@ -1251,7 +1252,7 @@ function _renderTopTable(tbodySel, rows){
   function _renderCarriers(rows){
     // restore header for country view
     const head = document.getElementById('tbl-carriers-head');
-    if(head) head.innerHTML = `<tr><th>Country</th><th>Carrier</th><th>Printed IDs</th><th>Cancelled IDs</th><th>Printed % (country)</th><th>% of total</th><th>Batches</th></tr>`;
+    if(head) head.innerHTML = `<tr><th>Country</th><th>Carrier</th><th>Printed IDs</th><th>Cancelled IDs</th><th>IDs c/ Vol.</th><th>Printed % (country)</th><th>% of total</th><th>Batches</th></tr>`;
     const tb = document.querySelector('#tbl-carriers tbody');
     if(!tb) return;
     tb.innerHTML = (rows||[]).map(r=>{
@@ -1263,6 +1264,7 @@ function _renderTopTable(tbodySel, rows){
         <td><b>${_fmt(r.carrier)}</b></td>
         <td>${r.printedIds}</td>
         <td>${r.cancelledIds||0}</td>
+        <td>${r.multiVolumeIds||0}</td>
         <td>${cls ? `<span class="pill ${cls}">${pctCountry.toFixed(1)}%</span>` : pctCountry.toFixed(1)+'%'}</td>
         <td>${pctTotal.toFixed(1)}%</td>
         <td>${r.batches}</td>
@@ -1763,7 +1765,7 @@ function _renderTopTable(tbodySel, rows){
     }
 
     tb.innerHTML = rows.map(r=>
-      `<tr><td><b>${_fmt(r.carrier)}</b></td><td>${r.batches}</td><td>${r.skuCount}</td><td>${r.totalQty}</td></tr>`
+      `<tr><td><b>${_fmt(r.carrier)}</b></td><td>${r.batches}</td><td>${r.skuCount}</td><td>${r.totalQty}</td><td>${(window.__offInvMap&&window.__offInvMap[r.carrier]&&window.__offInvMap[r.carrier].multiVolumeIds)||0}</td></tr>`
     ).join('');
   }
 
@@ -2310,9 +2312,13 @@ try{
     if(!daySet.has(dc)) return;
 
     const carrier = _carrierName(b);
-    if(!carrierInvMap[carrier]) carrierInvMap[carrier] = {carrier, batches:0, totalQty:0, skuMap:{}};
+    if(!carrierInvMap[carrier]) carrierInvMap[carrier] = {carrier, batches:0, totalQty:0, skuMap:{}, multiVolumeIds:0};
     const bucket = carrierInvMap[carrier];
     bucket.batches += 1;
+    // IDs com volumes — informativo, não altera contadores
+    if(b.order_volumes && typeof b.order_volumes === 'object'){
+      Object.values(b.order_volumes).forEach(v=>{ if(Number(v) > 1) bucket.multiVolumeIds += 1; });
+    }
 
     const inv = b.inventory || {};
     Object.keys(inv).forEach(sku=>{
@@ -2331,15 +2337,18 @@ try{
   try{
     const _allCarriers = Object.keys(carrierInvMap||{});
     let _items = 0;
+    let _multiVol = 0;
     const _skuSet = new Set();
     _allCarriers.forEach(cc=>{
-      const o = carrierInvMap[cc] || {totalQty:0, skuMap:{}};
+      const o = carrierInvMap[cc] || {totalQty:0, skuMap:{}, multiVolumeIds:0};
       _items += (o.totalQty||0);
+      _multiVol += (o.multiVolumeIds||0);
       Object.keys(o.skuMap||{}).forEach(sku=> _skuSet.add(String(sku)));
     });
     totals.offInvItems = _items;
     totals.offInvSkus = _skuSet.size;
-  }catch(_e){ totals.offInvItems = 0; totals.offInvSkus = 0; }
+    totals.multiVolumeIds = _multiVol;
+  }catch(_e){ totals.offInvItems = 0; totals.offInvSkus = 0; totals.multiVolumeIds = 0; }
   
   _initOffInventory(carrierInvMap);
 
@@ -2353,10 +2362,14 @@ try{
     const printedN = _requiredBatchIds(b).length;
     const cancelledN = _cancelledBatchCount(b);
 
-    if(!byC[carrier]) byC[carrier] = {carrier, country, printedIds:0, cancelledIds:0, batches:0, printedPct:0, countrySharePct:0};
+    if(!byC[carrier]) byC[carrier] = {carrier, country, printedIds:0, cancelledIds:0, batches:0, printedPct:0, countrySharePct:0, multiVolumeIds:0};
     byC[carrier].printedIds += printedN;
     byC[carrier].cancelledIds += cancelledN;
     byC[carrier].batches += 1;
+    // IDs com volumes (order_volumes com valor > 1) — informativo, não altera contadores
+    if(b.order_volumes && typeof b.order_volumes === 'object'){
+      Object.values(b.order_volumes).forEach(v=>{ if(Number(v) > 1) byC[carrier].multiVolumeIds += 1; });
+    }
   });
 
   carrierRows = Object.values(byC);
@@ -2411,6 +2424,7 @@ try{
   totals.esPrintedPct = 0;
   totals.offInvItems = 0;
   totals.offInvSkus = 0;
+  totals.multiVolumeIds = 0;
 }
 
 _renderKPIs(totals);
