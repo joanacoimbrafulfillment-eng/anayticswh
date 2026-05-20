@@ -2615,6 +2615,30 @@ window.runAnalytics = runAnalytics;
           <td>${r.batches}</td>
         </tr>`);
       html = _tbl(['Carrier','Printed IDs','Cancelled','% in '+country,'Batches'], rows, `No ${country} carriers found.`);
+
+    } else if(key === 'multiVolumeIds'){
+      label = 'IDs com Volumes > 1';
+      const rows = [];
+      Object.values(__last.rawBatches||{}).filter(Boolean).forEach(b=>{
+        if(!b.order_volumes || typeof b.order_volumes !== 'object') return;
+        const carrier = _carrierName(b);
+        const bName   = b.name || b.batchId || '-';
+        const dc      = b.dateClean || '';
+        Object.entries(b.order_volumes).forEach(([id, vol])=>{
+          if(Number(vol) > 1){
+            rows.push({ dc, bName, carrier, id, vol: Number(vol) });
+          }
+        });
+      });
+      rows.sort((a,b)=> (b.dc||'').localeCompare(a.dc||'') || a.id.localeCompare(b.id));
+      const htmlRows = rows.map(r=>`<tr>
+        <td>${r.dc}</td>
+        <td><b>${_fmt(r.id)}</b></td>
+        <td>${r.vol}</td>
+        <td>${_fmt(r.carrier)}</td>
+        <td style="font-size:11px;color:var(--muted);">${_fmt(r.bName)}</td>
+      </tr>`);
+      html = _tbl(['Data','ID','Volumes','Carrier','Lote'], htmlRows, 'Nenhum ID com volumes > 1 encontrado.');
     }
 
     title.textContent = label;
